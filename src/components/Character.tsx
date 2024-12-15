@@ -11,13 +11,22 @@ interface CharacterProps {
   onPositionUpdate?: (position: THREE.Vector3) => void;
   onRotationUpdate?: (rotation: number) => void;
   onTomatoPickup?: () => void;
-  onTomatoThrow?: () => void;
+  onTomatoThrow?: (position: THREE.Vector3, direction: THREE.Vector3) => void; // Must match how you call it
   isHoldingTomato?: boolean;
   isNearTomato?: boolean;
   handBoneRef?: React.MutableRefObject<THREE.Bone | null>;
 }
 
-const Character: React.FC<CharacterProps> = ({ camera, isNearIdol = false, onPositionUpdate, onRotationUpdate, onTomatoThrow, onTomatoPickup, isHoldingTomato = false, isNearTomato, handBoneRef }) => {
+declare global {
+  interface Window {
+    tomatoPickedUp: boolean;
+  }
+}
+
+window.tomatoPickedUp = false;
+window.tomatoThrown = false;
+
+const Character: React.FC<CharacterProps> = ({ camera, isNearIdol = false, onPositionUpdate, onRotationUpdate, onTomatoThrow, onTomatoPickup, isHoldingTomato = false, isNearTomato, handBoneRef, isAscending }) => {
   const { scene } = useThree();
   const groupRef = useRef<Group>(null!);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
@@ -36,12 +45,13 @@ const Character: React.FC<CharacterProps> = ({ camera, isNearIdol = false, onPos
   const targetCameraRotation = useRef(0);
   const lastValidCameraPosition = useRef(new THREE.Vector3());
   const isColliding = useRef(false);
-  const [isAscending, setIsAscending] = useState(false);
   const ascensionSpeed = 0.2;
   const initialHeight = useRef<number | null>(null);
   const [isPlayingLift, setIsPlayingLift] = useState(false);
   const [isPlayingThrow, setIsPlayingThrow] = useState(false);
   const rightHandBone = useRef<THREE.Bone | null>(null);
+  const liftTimeRef = useRef(0);
+  const throwTimeRef = useRef(0);
   
 
 
@@ -68,6 +78,10 @@ const Character: React.FC<CharacterProps> = ({ camera, isNearIdol = false, onPos
   const ROTATION_SMOOTHING = 0.05; // New constant for rotation smoothing
   const MIN_CAMERA_DISTANCE = 5; // Minimum distance when colliding
   const CAMERA_COLLISION_PADDING = 1.0;
+  const THROW_FORCE = 20;
+  const THROW_ANGLE = Math.PI / 4;
+  const LIFT_PICKUP_TIME = 1.5;  // 2 seconds into lift animation
+  const THROW_RELEASE_TIME = 0.7;
   const verticalVelocity = useRef(0);
 
   // Find terrain in scene
@@ -431,186 +445,138 @@ const Character: React.FC<CharacterProps> = ({ camera, isNearIdol = false, onPos
       window.removeEventListener('keyup', handleKeyUp);
     };
   }, [handleMouseDown, handleMouseUp, handleMouseMove, handleContextMenu, handleKeyDown, handleKeyUp]);
+  
+const startPickupAnimation = () => {
+  if (!animations.lift || !mixerRef.current || isPlayingLift) return;
+  
+  console.log('Starting pickup animation');
+  setIsPlayingLift(true);
+  liftTimeRef.current = 0;  // Reset timing
+  window.tomatoPickedUp = false;  // Reset pickup state
 
-  const crossFadeAnimation = (
-    from: THREE.AnimationAction | null,
-    to: THREE.AnimationAction,
-    duration: number = 0.2
-  ) => {
-    if (from) {
-      from.fadeOut(duration);
+  const liftAction = animations.lift;
+  if (!liftAction) return;
+
+  // Fade out current action
+  if (currentAction && currentAction !== liftAction) {
+    currentAction.fadeOut(0.2);
+  }
+
+  // Configure lift action
+  liftAction.reset();
+  liftAction.setLoop(THREE.LoopOnce, 0);
+  liftAction.clampWhenFinished = true;
+  liftAction.enabled = true;
+  liftAction.setEffectiveWeight(5);
+  liftAction.setEffectiveTimeScale(1);
+  liftAction.fadeIn(0.2);
+
+  const onLiftComplete = (e: any) => {
+    if (e.action !== liftAction) return;
+    mixerRef.current?.removeEventListener('finished', onLiftComplete);
+    
+    setIsPlayingLift(false);
+    onTomatoPickup?.();
+
+    // Return to idle
+    if (animations.idle) {
+      liftAction.fadeOut(0.2);
+      animations.idle.reset().fadeIn(0.2).play();
+      setCurrentAction(animations.idle);
     }
-    to.reset();
-    to.fadeIn(duration);
-    to.play();
   };
 
-  const startPickupAnimation = () => {
-    if (!animations.lift || !mixerRef.current || isPlayingLift) {
-        console.log('Cannot start pickup animation:', {
-            hasLiftAnimation: !!animations.lift,
-            hasMixer: !!mixerRef.current,
-            isPlaying: isPlayingLift
-        });
-        return;
-    }
-    
-    console.log('Starting pickup animation');
-    setIsPlayingLift(true);
+  mixerRef.current.removeEventListener('finished', onLiftComplete);
+  mixerRef.current.addEventListener('finished', onLiftComplete);
 
-    // Stop all current animations immediately
-    mixerRef.current.stopAllAction();
-    
-    const liftAction = animations.lift;
-    
-    // Log initial state
-    console.log('Lift action before play:', {
-        weight: liftAction.getEffectiveWeight(),
-        timeScale: liftAction.getEffectiveTimeScale(),
-        duration: liftAction.getClip().duration,
-        enabled: liftAction.enabled,
-        isRunning: liftAction.isRunning()
-    });
-    
-    const onLiftComplete = (e: any) => {
-        if (e.action !== liftAction) return;
-        
-        console.log('Lift animation complete');
-        mixerRef.current?.removeEventListener('finished', onLiftComplete);
-        setIsPlayingLift(false);
-        onTomatoPickup?.();
-        
-        // Return to idle immediately
-        if (animations.idle) {
-            mixerRef.current?.stopAllAction();
-            animations.idle.reset();
-            animations.idle.enabled = true;
-            animations.idle.weight = 1;
-            animations.idle.play();
-            setCurrentAction(animations.idle);
-        }
-    };
-    
-    // Clean up any existing listeners and add new one
-    mixerRef.current.removeEventListener('finished', onLiftComplete);
-    mixerRef.current.addEventListener('finished', onLiftComplete);
-    
-    // Play the animation
-    liftAction.play();
-    setCurrentAction(liftAction);
-
-    // Check state after a short delay
-    setTimeout(() => {
-        console.log('Animation state after 200ms:', {
-            isPlaying: liftAction.isRunning(),
-            time: liftAction.time,
-            weight: liftAction.getEffectiveWeight(),
-            timeScale: liftAction.getEffectiveTimeScale(),
-            enabled: liftAction.enabled
-        });
-        
-        // Force weight if it dropped
-        if (liftAction.getEffectiveWeight() === 0) {
-            console.log('Forcing weight back to 1');
-            liftAction.enabled = true;
-            liftAction.weight = 5;
-            liftAction.play();
-        }
-    }, 150);
+  liftAction.play();
+  setCurrentAction(liftAction);
 };
-  
+
+// Update the startThrowAnimation:
 const startThrowAnimation = () => {
-  if (!animations.throw || !mixerRef.current || isPlayingThrow) {
-      console.log('Cannot start throw animation:', {
-          hasThrowAnimation: !!animations.throw,
-          hasMixer: !!mixerRef.current,
-          isPlaying: isPlayingThrow
-      });
-      return;
-  }
+  if (!animations.throw || !mixerRef.current || isPlayingThrow) return;
   
   console.log('Starting throw animation');
   setIsPlayingThrow(true);
+  throwTimeRef.current = 0;
+  window.tomatoThrown = false;  // Reset throw flag
 
-  // Stop all current animations immediately
-  mixerRef.current.stopAllAction();
-  
   const throwAction = animations.throw;
-  
-  // Reset and configure the animation
+
+  if (currentAction && currentAction !== throwAction) {
+    currentAction.fadeOut(0.2);
+  }
+
   throwAction.reset();
   throwAction.setLoop(THREE.LoopOnce, 0);
   throwAction.clampWhenFinished = true;
-  
-  // Explicitly set weight and timescale before playing
+  throwAction.enabled = true;
   throwAction.setEffectiveTimeScale(1);
   throwAction.setEffectiveWeight(1);
-  
-  // Disable weight interpolation
-  throwAction.setDuration(2.2);  // Match original duration
-  throwAction.enabled = true;
-  throwAction.weight = 1;
-  throwAction.zeroSlopeAtStart = false;
-  throwAction.zeroSlopeAtEnd = false;
-  
-  // Log initial state
-  console.log('Throw action before play:', {
-      weight: throwAction.getEffectiveWeight(),
-      timeScale: throwAction.getEffectiveTimeScale(),
-      duration: throwAction.getClip().duration,
-      enabled: throwAction.enabled,
-      isRunning: throwAction.isRunning()
-  });
-  
+  throwAction.fadeIn(0.2);
+
   const onThrowComplete = (e: any) => {
-      if (e.action !== throwAction) return;
-      
-      console.log('Throw animation complete');
-      mixerRef.current?.removeEventListener('finished', onThrowComplete);
-      setIsPlayingThrow(false);
-      onTomatoThrow?.();
-      
-      // Return to idle immediately
-      if (animations.idle) {
-          mixerRef.current?.stopAllAction();
-          animations.idle.reset();
-          animations.idle.enabled = true;
-          animations.idle.weight = 1;
-          animations.idle.play();
-          setCurrentAction(animations.idle);
-      }
+    if (e.action !== throwAction) return;
+    mixerRef.current?.removeEventListener('finished', onThrowComplete);
+    
+    setIsPlayingThrow(false);
+    window.tomatoPickedUp = false;  // Reset pickup flag after animation
+    
+    // Return to idle
+    if (animations.idle) {
+      throwAction.fadeOut(0.2);
+      animations.idle.reset().fadeIn(0.2).play();
+      setCurrentAction(animations.idle);
+    }
   };
-  
-  // Clean up any existing listeners and add new one
+
   mixerRef.current.removeEventListener('finished', onThrowComplete);
   mixerRef.current.addEventListener('finished', onThrowComplete);
-  
-  // Play the animation
+
   throwAction.play();
   setCurrentAction(throwAction);
-
-  // Check state after a short delay
-  setTimeout(() => {
-      console.log('Throw animation state after 200ms:', {
-          isPlaying: throwAction.isRunning(),
-          time: throwAction.time,
-          weight: throwAction.getEffectiveWeight(),
-          timeScale: throwAction.getEffectiveTimeScale(),
-          enabled: throwAction.enabled
-      });
-      
-      // Force weight if it dropped
-      if (throwAction.getEffectiveWeight() === 0) {
-          console.log('Forcing weight back to 1');
-          throwAction.enabled = true;
-          throwAction.weight = 5;
-          throwAction.play();
-      }
-  }, 200);
 };
 
   useFrame((state, delta) => {
     if (!groupRef.current || !mixerRef.current || !animations.idle) return;
+
+    if (currentAction === animations.throw && isPlayingThrow) {
+      throwTimeRef.current = currentAction.time;
+      
+      // Check for throw point
+      if (throwTimeRef.current >= THROW_RELEASE_TIME && !window.tomatoThrown) {
+        window.tomatoThrown = true;  // Flag to prevent multiple throws
+        
+        const throwDir = new THREE.Vector3(0, Math.sin(THROW_ANGLE), Math.cos(THROW_ANGLE))
+          .applyAxisAngle(new THREE.Vector3(0, 1, 0), rotationRef.current)
+          .normalize(); // Don't multiply by force here
+        
+        if (handBoneRef?.current) {
+          const tomatoPosition = new THREE.Vector3();
+          handBoneRef.current.getWorldPosition(tomatoPosition);
+          console.log("Throwing tomato from position:", tomatoPosition);
+          onTomatoThrow?.(tomatoPosition, throwDir);
+        }
+      }
+    }
+
+    if (currentAction === animations.lift && isPlayingLift) {
+      liftTimeRef.current = currentAction.time;
+    
+      // If we reached the pickup point and haven't triggered pickup yet
+      if (liftTimeRef.current >= LIFT_PICKUP_TIME && !window.tomatoPickedUp) {
+        window.tomatoPickedUp = true;
+        // Trigger the tomato pickup callback here
+        onTomatoPickup?.();
+      }
+    }
+    
+    
+    if (isPlayingLift || isPlayingThrow) {
+      mixerRef.current.update(delta);
+      return;
+    }
 
     mixerRef.current.update(delta);
     if (isAscending && groupRef.current) {
@@ -626,19 +592,6 @@ const startThrowAnimation = () => {
         0.05
       );
     }
-
-    if (currentAction && isPlayingLift) {
-      const time = currentAction.time;
-      // Only log every few frames to avoid console spam
-      if (Math.floor(time * 10) !== Math.floor((time - delta) * 10)) {
-          console.log('Animation update:', {
-              time: currentAction.time,
-              weight: currentAction.getEffectiveWeight(),
-              isRunning: currentAction.isRunning(),
-              enabled: currentAction.enabled
-          });
-      }
-  }
 
   // Prayer logic
   if (isPraying) {
@@ -689,6 +642,35 @@ const startThrowAnimation = () => {
     if (groupRef.current.position.y < terrainHeight) {
         groupRef.current.position.y = terrainHeight;
     }
+}
+
+if (isAscending && groupRef.current) {
+  console.log('Ascending character');
+  // Store initial height when ascension starts
+  if (initialHeight.current === null) {
+    initialHeight.current = groupRef.current.position.y;
+  }
+
+  // Move character up
+  groupRef.current.position.y += ascensionSpeed;
+
+  // Move camera with character
+  camera.position.y += ascensionSpeed;
+
+  // Rotate character to face upward
+  const targetRotation = -Math.PI / 2; // Face upward
+  groupRef.current.rotation.x = THREE.MathUtils.lerp(
+    groupRef.current.rotation.x,
+    targetRotation,
+    0.05
+  );
+
+  // Update character animations (optional)
+  if (currentAction !== animations.idle) {
+    currentAction?.fadeOut(0.2);
+    animations.idle.reset().fadeIn(0.2).play();
+    setCurrentAction(animations.idle);
+  }
 }
 
   if (!isPraying) {

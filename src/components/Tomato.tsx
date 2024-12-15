@@ -1,7 +1,14 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
+
+declare global {
+  interface Window {
+    tomatoPickedUp: boolean;
+    tomatoThrown: boolean;
+  }
+}
 
 interface TomatoProps {
   position?: THREE.Vector3;
@@ -11,12 +18,15 @@ interface TomatoProps {
   onLeaveTomato?: () => void;
   isHeld?: boolean;
   handBone?: THREE.Bone | null;
+  throwData?: {
+    position: THREE.Vector3;
+    direction: THREE.Vector3;
+  } | null;
 }
 
-const PICKUP_DISTANCE = 2;
-const THROW_FORCE = 20;
+const PICKUP_DISTANCE = 3;
 const GRAVITY = -9.8;
-const THROW_ANGLE = Math.PI / 4; // 45 degrees upward
+const THROW_FORCE = 20;
 
 interface ThrowState {
   initialPosition: THREE.Vector3;
@@ -24,100 +34,107 @@ interface ThrowState {
   time: number;
 }
 
-export const Tomato: React.FC<TomatoProps> = ({ 
+export const Tomato: React.FC<TomatoProps> = ({
   position = new THREE.Vector3(-10, 1, -20),
   characterPosition,
-  characterRotation = 0,
   onNearTomato,
   onLeaveTomato,
   isHeld = false,
-  handBone = null
+  handBone = null,
+  throwData = null
 }) => {
   const group = useRef<THREE.Group>(null!);
   const { scene: tomatoModel } = useGLTF('/Tomato.glb');
   const wasNearRef = useRef(false);
   const [throwState, setThrowState] = useState<ThrowState | null>(null);
-  const [isInAir, setIsInAir] = useState(false);
-  const targetPosition = useRef(new THREE.Vector3());
-  const targetRotation = useRef(new THREE.Euler());
+  const [restingPosition, setRestingPosition] = useState(position.clone());
+
+  // Handle throw initiation
+  useEffect(() => {
+    if (throwData) {
+      console.log("Received throw data:", throwData);
+      setThrowState({
+        initialPosition: throwData.position.clone(),
+        initialVelocity: throwData.direction.clone().multiplyScalar(THROW_FORCE),
+        time: 0
+      });
+    }
+  }, [throwData]);
+
+  useEffect(() => {
+    if (!isHeld && throwState === null) {
+      // Reset to resting position if not held and not being thrown
+      if (group.current) {
+        group.current.position.copy(restingPosition);
+      }
+    }
+  }, [isHeld, throwState, restingPosition]);
 
   useFrame((_, delta) => {
-    if (!group.current || !characterPosition) return;
+    if (!group.current) return;
 
+    // Handle being held by hand
     if (isHeld && handBone) {
-      // Get world position and rotation of the hand bone
       const handWorldPosition = new THREE.Vector3();
       const handWorldQuaternion = new THREE.Quaternion();
       handBone.getWorldPosition(handWorldPosition);
       handBone.getWorldQuaternion(handWorldQuaternion);
 
-      // Apply offset relative to hand bone
-      const offset = new THREE.Vector3(0, 0.1, 0); // Adjust these values to position the tomato correctly
-      offset.applyQuaternion(handWorldQuaternion);
-      
-      // Update target position and rotation
-      targetPosition.current.copy(handWorldPosition).add(offset);
-      targetRotation.current.setFromQuaternion(handWorldQuaternion);
+      // Apply offset relative to hand
+      const offset = new THREE.Vector3(0, 0.1, 0).applyQuaternion(handWorldQuaternion);
+      const targetPosition = handWorldPosition.clone().add(offset);
 
-      // Smoothly interpolate current position and rotation to target
-      group.current.position.lerp(targetPosition.current, delta * 10);
-      group.current.rotation.x += (targetRotation.current.x - group.current.rotation.x) * delta * 10;
-      group.current.rotation.y += (targetRotation.current.y - group.current.rotation.y) * delta * 10;
-      group.current.rotation.z += (targetRotation.current.z - group.current.rotation.z) * delta * 10;
+      // Smooth transition to hand position
+      group.current.position.lerp(targetPosition, delta * 10);
 
-      setIsInAir(true);
-    } else if (throwState) {
-      // Update throw physics
+      // Match hand rotation
+      const targetRotation = new THREE.Euler().setFromQuaternion(handWorldQuaternion);
+      group.current.rotation.x = THREE.MathUtils.lerp(group.current.rotation.x, targetRotation.x, delta * 10);
+      group.current.rotation.y = THREE.MathUtils.lerp(group.current.rotation.y, targetRotation.y, delta * 10);
+      group.current.rotation.z = THREE.MathUtils.lerp(group.current.rotation.z, targetRotation.z, delta * 10);
+    }
+    // Handle being thrown
+    else if (throwState) {
       throwState.time += delta;
-      
+      const t = throwState.time;
+
       const newPosition = new THREE.Vector3(
-        throwState.initialPosition.x + throwState.initialVelocity.x * throwState.time,
-        throwState.initialPosition.y + 
-        throwState.initialVelocity.y * throwState.time + 
-        0.5 * GRAVITY * throwState.time * throwState.time,
-        throwState.initialPosition.z + throwState.initialVelocity.z * throwState.time
+        throwState.initialPosition.x + throwState.initialVelocity.x * t,
+        throwState.initialPosition.y + throwState.initialVelocity.y * t + 0.5 * GRAVITY * t * t,
+        throwState.initialPosition.z + throwState.initialVelocity.z * t
       );
 
+      // Check ground collision
       if (newPosition.y <= 0) {
         newPosition.y = 0;
+        setRestingPosition(newPosition.clone());
         setThrowState(null);
-        setIsInAir(false);
-        group.current.position.copy(newPosition);
       } else {
         group.current.position.copy(newPosition);
+        // Add spin while in air
         group.current.rotation.x += delta * 5;
         group.current.rotation.z += delta * 5;
       }
-    } else if (!isInAir) {
-      // Rest state
-      group.current.position.copy(position);
+    }
+    // Handle resting state
+    else if (!isHeld) {
+      group.current.position.copy(restingPosition);
       group.current.rotation.set(0, 0, 0);
-      
-      const distance = position.distanceTo(characterPosition);
-      const isNearNow = distance < PICKUP_DISTANCE;
-      
-      if (isNearNow && !wasNearRef.current) {
-        onNearTomato?.();
-      } else if (!isNearNow && wasNearRef.current) {
-        onLeaveTomato?.();
+
+      // Check proximity to character
+      if (characterPosition) {
+        const distance = restingPosition.distanceTo(characterPosition);
+        const isNearNow = distance < PICKUP_DISTANCE;
+
+        if (isNearNow && !wasNearRef.current) {
+          onNearTomato?.();
+        } else if (!isNearNow && wasNearRef.current) {
+          onLeaveTomato?.();
+        }
+        wasNearRef.current = isNearNow;
       }
-      wasNearRef.current = isNearNow;
     }
   });
-
-  // Effect to handle transition from held to thrown
-  React.useEffect(() => {
-    if (!isHeld && group.current && throwState === null && isInAir) {
-      const throwDir = new THREE.Vector3(0, Math.sin(THROW_ANGLE), Math.cos(THROW_ANGLE));
-      throwDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), characterRotation);
-      
-      setThrowState({
-        initialPosition: group.current.position.clone(),
-        initialVelocity: throwDir.multiplyScalar(THROW_FORCE),
-        time: 0
-      });
-    }
-  }, [isHeld, characterRotation]);
 
   // Clone and prepare the tomato model
   const model = tomatoModel.clone();
@@ -129,8 +146,8 @@ export const Tomato: React.FC<TomatoProps> = ({
   });
 
   return (
-    <group ref={group} position={position}>
-      <primitive object={model} scale={0.5} />
+    <group ref={group} position={restingPosition}>
+      <primitive object={model} scale={1} />
     </group>
   );
 };

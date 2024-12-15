@@ -42,11 +42,38 @@ function App() {
   const characterPositionRef = useRef(new THREE.Vector3());
   const characterRotationRef = useRef(0);
   const handBoneRef = useRef<THREE.Bone | null>(null);
+  const [tomatoThrowPosition, setTomatoThrowPosition] = useState<THREE.Vector3 | undefined>();
+const [tomatoThrowDirection, setTomatoThrowDirection] = useState<THREE.Vector3 | undefined>();
 
   
   // Tomato states
   const [isNearTomato, setIsNearTomato] = useState(false);
   const [isTomatoHeld, setIsTomatoHeld] = useState(false);
+  const [throwState, setThrowState] = useState<{
+    initialPosition: THREE.Vector3;
+    initialVelocity: THREE.Vector3;
+    time: number;
+  } | null>(null);
+  const [throwData, setThrowData] = useState<{
+    position: THREE.Vector3;
+    direction: THREE.Vector3;
+  } | null>(null);
+
+  const handleTomatoPickup = () => {
+    // The character picked up the tomato
+    setIsTomatoHeld(true);
+    setThrowState(null);
+  };
+
+  const handleTomatoThrow = (position: THREE.Vector3, direction: THREE.Vector3) => {
+    // The character throws the tomato from the given position and direction
+    setIsTomatoHeld(false);
+    setThrowState({
+      initialPosition: position.clone(),
+      initialVelocity: direction.clone(), 
+      time: 0,
+    });
+  };
 
   const handlePositionUpdate = (pos: THREE.Vector3) => {
     characterPositionRef.current.copy(pos);
@@ -78,7 +105,10 @@ function App() {
             onPositionUpdate={handlePositionUpdate}
             onRotationUpdate={handleRotationUpdate}
             onTomatoPickup={() => setIsTomatoHeld(true)}
-            onTomatoThrow={() => setIsTomatoHeld(false)}
+            onTomatoThrow={(position: THREE.Vector3, direction: THREE.Vector3) => {
+              setThrowData({ position, direction });
+              setIsTomatoHeld(false);
+            }}
             isHoldingTomato={isTomatoHeld}
             isNearTomato={isNearTomato}
             handBoneRef={handBoneRef}
@@ -93,6 +123,7 @@ function App() {
             onLeaveTomato={() => setIsNearTomato(false)}
             isHeld={isTomatoHeld}
             handBone={handBoneRef.current}
+            throwData={throwData}
           />
           <Ascension 
             position={new THREE.Vector3(0, 0, 0)} 
