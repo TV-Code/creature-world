@@ -1,11 +1,11 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
 interface AscensionProps {
   position?: THREE.Vector3;
   characterPosition?: THREE.Vector3;
-  onAscensionStart?: () => void;
+  onAscensionStateChange?: (isInBeam: boolean) => void;
 }
 
 const AscensionShader = {
@@ -23,7 +23,8 @@ const AscensionShader = {
       vNormal = normalize(normalMatrix * normal);
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }
-  `,
+    `
+  ,
   fragmentShader: `
     varying vec2 vUv;
     varying vec3 vPosition;
@@ -56,11 +57,11 @@ const AscensionShader = {
       
       float verticalMovement = mod(vPosition.y * 0.1 + time * 0.5, 1.0);
       
-      float glow = pow(0.7 - dot(vNormal, viewDir), 3.0);
+      float glow = pow(0.0001 - dot(vNormal, viewDir), 1.0);
       float moveEffect = sin(verticalMovement * 6.28) * 0.1;
       finalColor += vec3(0.2) * glow + vec3(moveEffect);
       
-      float edgeFade = pow(abs(dot(vNormal, viewDir)), 0.5);
+      float edgeFade = pow(abs(dot(vNormal, viewDir)), 0.3);
       float alpha = 0.9 * edgeFade;
       
       // Add pulsing effect
@@ -73,11 +74,10 @@ const AscensionShader = {
 };
 
 export const Ascension: React.FC<AscensionProps> = ({ 
-  position = new THREE.Vector3(50, 0, 50),
+  position = new THREE.Vector3(0, 0, 0),
   characterPosition,
-  onAscensionStart 
+  onAscensionStateChange
 }) => {
-  const [hasTriggered, setHasTriggered] = useState(false);
   const cylinderRadius = 5;
   const cylinderHeight = 300;
 
@@ -97,16 +97,16 @@ export const Ascension: React.FC<AscensionProps> = ({
     shaderMaterial.uniforms.time.value += delta;
 
     // Check for character collision
-    if (characterPosition && !hasTriggered) {
+    if (characterPosition) {
       const distance = new THREE.Vector2(
         characterPosition.x - position.x,
         characterPosition.z - position.z
       ).length();
 
       if (distance < cylinderRadius) {
-        console.log('Character entered ascension zone');
-        setHasTriggered(true);
-        onAscensionStart?.();
+        onAscensionStateChange?.(true);
+      } else {
+        onAscensionStateChange?.(false);
       }
     }
   });

@@ -164,6 +164,7 @@ const Character: React.FC<CharacterProps> = ({ camera, isNearIdol = false, onPos
   const prayerAnim = useLoader(FBXLoader, "./character/Praying.fbx");
   const liftAnim = useLoader(FBXLoader, "./character/Lifting.fbx");
   const throwAnim = useLoader(FBXLoader, "./character/Throwing.fbx");
+  const floatAnim = useLoader(FBXLoader, "./character/Floating.fbx");
 
 
   // Mouse handlers
@@ -348,6 +349,12 @@ const Character: React.FC<CharacterProps> = ({ camera, isNearIdol = false, onPos
         }
       });
       prayerYOffset.current = maxY;
+    }
+
+    if (floatAnim.animations.length > 0) {
+      const floatClip = floatAnim.animations[0].clone();
+      animsDict.float = mixer.clipAction(floatClip);
+      animsDict.float.setLoop(THREE.LoopRepeat, Infinity);
     }
 
     if (liftAnim.animations.length > 0) {
@@ -579,18 +586,28 @@ const startThrowAnimation = () => {
     }
 
     mixerRef.current.update(delta);
-    if (isAscending && groupRef.current) {
-      // Move character and camera up
-      const ASCENSION_SPEED = 0.2;
-      groupRef.current.position.y += ASCENSION_SPEED;
-      camera.position.y += ASCENSION_SPEED;
 
-      // Optional: rotate character to face upward
-      groupRef.current.rotation.x = THREE.MathUtils.lerp(
-        groupRef.current.rotation.x,
-        -Math.PI / 2, // Face upward
-        0.05
-      );
+    if (onPositionUpdate) {
+      onPositionUpdate(groupRef.current.position);
+    }
+
+    if (isAscending) {
+      // Smoothly transition to float animation if not already floating
+      if (currentAction !== animations.float) {
+        currentAction?.fadeOut(0.2);
+        animations.float.reset().fadeIn(0.2).play();
+        setCurrentAction(animations.float);
+      }
+  
+      // Move character up
+      const nextPosition = groupRef.current.position.clone();
+      nextPosition.y += ascensionSpeed;
+      groupRef.current.position.copy(nextPosition);
+  
+      // Update camera position
+      if (camera) {
+        camera.position.y += ascensionSpeed;
+      }
     }
 
   // Prayer logic
@@ -644,36 +661,7 @@ const startThrowAnimation = () => {
     }
 }
 
-if (isAscending && groupRef.current) {
-  console.log('Ascending character');
-  // Store initial height when ascension starts
-  if (initialHeight.current === null) {
-    initialHeight.current = groupRef.current.position.y;
-  }
-
-  // Move character up
-  groupRef.current.position.y += ascensionSpeed;
-
-  // Move camera with character
-  camera.position.y += ascensionSpeed;
-
-  // Rotate character to face upward
-  const targetRotation = -Math.PI / 2; // Face upward
-  groupRef.current.rotation.x = THREE.MathUtils.lerp(
-    groupRef.current.rotation.x,
-    targetRotation,
-    0.05
-  );
-
-  // Update character animations (optional)
-  if (currentAction !== animations.idle) {
-    currentAction?.fadeOut(0.2);
-    animations.idle.reset().fadeIn(0.2).play();
-    setCurrentAction(animations.idle);
-  }
-}
-
-  if (!isPraying) {
+  if (!isPraying && !isAscending) {
     const speed = movement.run ? CHARACTER_SPEED * 2 : CHARACTER_SPEED;
     const isMoving = movement.forward || movement.backward;
 
@@ -758,9 +746,10 @@ if (isAscending && groupRef.current) {
         setCurrentAction(animations.idle);
       }
 
-      // Apply terrain height if not jumping
+      if (!isAscending) {
       const terrainHeight = getTerrainHeight(groupRef.current.position);
       groupRef.current.position.y = terrainHeight;
+    }
     }
   }
     // Rotation
