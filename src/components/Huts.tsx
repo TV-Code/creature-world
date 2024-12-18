@@ -10,8 +10,9 @@ const hutPositions = [
 ];
 
 const Hut: React.FC<{ position: THREE.Vector3 }> = ({ position }) => {
+    const basePath = process.env.PUBLIC_URL || "";
     const hutRef = useRef<THREE.Group>();
-    const model = useLoader(FBXLoader, '/textures/nature/Creature Hut.fbx');
+    const model = useLoader(FBXLoader, `${basePath}/textures/nature/Creature Hut.fbx`);
 
     useEffect(() => {
         if (hutRef.current) {

@@ -17,8 +17,9 @@ const Idol: React.FC<IdolProps> = ({
   characterPosition,
   onNearbyChange 
 }) => {
+  const basePath = process.env.PUBLIC_URL || "";
   const group = useRef<THREE.Group>(null!);
-  const { scene, animations } = useGLTF("/character/enlightenedcreature.glb");
+  const { scene, animations } = useGLTF(`${basePath}/character/enlightenedcreature.glb`);
   const { actions, mixer } = useAnimations(animations, group);
   const currentAnimation = useRef<THREE.AnimationAction | null>(null);
   const lastDistance = useRef<number>(Infinity);
