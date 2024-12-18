@@ -1,0 +1,15 @@
+{
+  "files": {
+    "main.css": "/creature-world/static/css/main.dbad201e.css",
+    "main.js": "/creature-world/static/js/main.5dc36700.js",
+    "static/js/453.65d08440.chunk.js": "/creature-world/static/js/453.65d08440.chunk.js",
+    "index.html": "/creature-world/index.html",
+    "main.dbad201e.css.map": "/creature-world/static/css/main.dbad201e.css.map",
+    "main.5dc36700.js.map": "/creature-world/static/js/main.5dc36700.js.map",
+    "453.65d08440.chunk.js.map": "/creature-world/static/js/453.65d08440.chunk.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.dbad201e.css",
+    "static/js/main.5dc36700.js"
+  ]
+}
