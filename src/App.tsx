@@ -83,6 +83,11 @@ const [tomatoThrowDirection, setTomatoThrowDirection] = useState<THREE.Vector3 |
     characterRotationRef.current = rotation;
   };
 
+  const handleAscensionStateChange = (isInBeam: boolean) => {
+    setIsAscending(isInBeam);
+    console.log("Ascension state changed:", isInBeam);
+  };
+
   return (
     <div className="w-full h-screen bg-blue-400">
       <Canvas 
@@ -126,9 +131,9 @@ const [tomatoThrowDirection, setTomatoThrowDirection] = useState<THREE.Vector3 |
             throwData={throwData}
           />
           <Ascension 
-            position={new THREE.Vector3(0, 0, 0)} 
+            position={new THREE.Vector3(50, 0, 0)} 
             characterPosition={characterPositionRef.current}
-            onAscensionStart={() => setIsAscending(true)}
+            onAscensionStateChange={handleAscensionStateChange}
           />
           <Idol
             position={new THREE.Vector3(10, 0, 10)}
