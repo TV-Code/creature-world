@@ -6,7 +6,7 @@ import Character from "./components/Character";
 import * as THREE from "three";
 import Nature from "./components/Nature";
 import Idol from "./components/Idol";
-import Huts from "./components/Huts";
+import HutNPC from "./components/HutNPC";
 import Tomato from "./components/Tomato";
 import { PostProcessing } from "./components/PostProcessing";
 import Ascension from "./components/Ascension";
@@ -119,7 +119,7 @@ const [tomatoThrowDirection, setTomatoThrowDirection] = useState<THREE.Vector3 |
             handBoneRef={handBoneRef}
           />
           <Nature />
-          <Huts />
+          <HutNPC />
           <Tomato 
             position={new THREE.Vector3(-10, 0, -20)}
             characterPosition={characterPositionRef.current}
