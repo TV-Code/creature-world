@@ -1,6 +1,5 @@
 {
   "name": "threejs-world",
-  "homepage": "https://tv-code.github.io/creature-world",
   "version": "0.1.0",
   "private": true,
   "dependencies": {
