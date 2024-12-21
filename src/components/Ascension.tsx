@@ -6,6 +6,7 @@ interface AscensionProps {
   position?: THREE.Vector3;
   characterPosition?: THREE.Vector3;
   onAscensionStateChange?: (isInBeam: boolean) => void;
+  canAscend?: boolean;
 }
 
 const AscensionShader = {
@@ -76,7 +77,8 @@ const AscensionShader = {
 export const Ascension: React.FC<AscensionProps> = ({ 
   position = new THREE.Vector3(0, 0, 0),
   characterPosition,
-  onAscensionStateChange
+  onAscensionStateChange,
+  canAscend
 }) => {
   const cylinderRadius = 5;
   const cylinderHeight = 300;
@@ -103,7 +105,7 @@ export const Ascension: React.FC<AscensionProps> = ({
         characterPosition.z - position.z
       ).length();
 
-      if (distance < cylinderRadius) {
+      if (distance < cylinderRadius && canAscend) {
         onAscensionStateChange?.(true);
       } else {
         onAscensionStateChange?.(false);

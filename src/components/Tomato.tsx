@@ -82,11 +82,11 @@ export const Tomato: React.FC<TomatoProps> = ({
       handBone.getWorldQuaternion(handWorldQuaternion);
 
       // Apply offset relative to hand
-      const offset = new THREE.Vector3(0, 0.1, 0).applyQuaternion(handWorldQuaternion);
+      const offset = new THREE.Vector3(0, -0.2, 0.5).applyQuaternion(handWorldQuaternion);
       const targetPosition = handWorldPosition.clone().add(offset);
 
       // Smooth transition to hand position
-      group.current.position.lerp(targetPosition, delta * 10);
+      group.current.position.lerp(targetPosition, delta * 100);
 
       // Match hand rotation
       const targetRotation = new THREE.Euler().setFromQuaternion(handWorldQuaternion);

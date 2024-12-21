@@ -4,26 +4,38 @@ import { useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader";
 
-const HutNPC: React.FC = () => {
+interface HutNPCProps {
+    onNearNPC?: (isNear: boolean) => void;
+    characterPosition?: THREE.Vector3;
+    hasSpokenToNPC?: boolean;
+}
+
+const NPC_INTERACTION_DISTANCE = 20;
+
+const HutNPC: React.FC<HutNPCProps> = ({ 
+    onNearNPC, 
+    characterPosition,
+    hasSpokenToNPC = false 
+}) => {
     const npcRef = useRef<THREE.Group>(null!);
     const mixerRef = useRef<THREE.AnimationMixer | null>(null);
+    const lastDistance = useRef<number>(Infinity);
+    const wasNear = useRef<boolean>(false);
+
     const hutModel = useLoader(FBXLoader, '/textures/nature/Creature Hut.fbx');
     const { scene: npcModel, animations } = useGLTF('/character/CreatureNPC.glb');
 
     useEffect(() => {
-        // Basic setup for hut
+        // Setup hut
         hutModel.scale.setScalar(0.012);
-        hutModel.rotation.y = Math.PI / 4; // 45 degrees rotation
+        hutModel.rotation.y = Math.PI / -5;
 
-        // Basic setup for NPC
+        // Setup NPC
         npcModel.scale.setScalar(5);
-        
-        // Position NPC inside hut
-        npcModel.rotation.y = Math.PI * 1.4; // Makes NPC face outward from hut
+        npcModel.rotation.y = Math.PI * 1; // Face outward from hut
 
         // Setup animation
         if (animations && animations.length > 0) {
-            console.log("Setting up animation:", animations[0]);
             const mixer = new THREE.AnimationMixer(npcModel);
             mixerRef.current = mixer;
             const action = mixer.clipAction(animations[0]);
@@ -31,15 +43,31 @@ const HutNPC: React.FC = () => {
         }
     }, [hutModel, npcModel, animations]);
 
-    // Update animation
     useFrame((_, delta) => {
+        // Update animation
         if (mixerRef.current) {
             mixerRef.current.update(delta);
+        }
+
+        // Check player distance for interaction
+        if (onNearNPC && characterPosition && !hasSpokenToNPC) {
+            const npcPosition = new THREE.Vector3(-30, 0, 50);
+            const distance = characterPosition.distanceTo(npcPosition);
+
+            if (Math.abs(distance - lastDistance.current) > 1) {
+                const isNear = distance < NPC_INTERACTION_DISTANCE;
+                lastDistance.current = distance;
+
+                if (isNear !== wasNear.current) {
+                    wasNear.current = isNear;
+                    onNearNPC(isNear);
+                }
+            }
         }
     });
 
     return (
-        <group position={[-30, 0, 150]}>
+        <group position={[-30, 1, 50]}>
             {/* Hut */}
             <primitive object={hutModel} />
             {/* NPC */}
