@@ -37,42 +37,35 @@ light.shadow.camera.top = 500;
 light.shadow.camera.bottom = -500;
 
 function App() {
+  // Original states
   const [isNearIdol, setIsNearIdol] = useState(false);
   const [isAscending, setIsAscending] = useState(false);
+  const [isNearNPC, setIsNearNPC] = useState(false);
   const characterPositionRef = useRef(new THREE.Vector3());
   const characterRotationRef = useRef(0);
   const handBoneRef = useRef<THREE.Bone | null>(null);
-  const [tomatoThrowPosition, setTomatoThrowPosition] = useState<THREE.Vector3 | undefined>();
-const [tomatoThrowDirection, setTomatoThrowDirection] = useState<THREE.Vector3 | undefined>();
-
-  
-  // Tomato states
-  const [isNearTomato, setIsNearTomato] = useState(false);
   const [isTomatoHeld, setIsTomatoHeld] = useState(false);
-  const [throwState, setThrowState] = useState<{
-    initialPosition: THREE.Vector3;
-    initialVelocity: THREE.Vector3;
-    time: number;
-  } | null>(null);
+  const [isNearTomato, setIsNearTomato] = useState(false);
   const [throwData, setThrowData] = useState<{
     position: THREE.Vector3;
     direction: THREE.Vector3;
   } | null>(null);
 
-  const handleTomatoPickup = () => {
-    // The character picked up the tomato
-    setIsTomatoHeld(true);
-    setThrowState(null);
-  };
+  // New quest-related states
+  const [hasSpokenToNPC, setHasSpokenToNPC] = useState(false);
+  const [canAscend, setCanAscend] = useState(false);
+  const [dialogState, setDialogState] = useState(0);  // 0: no dialog, 1-3: NPC dialog states
 
-  const handleTomatoThrow = (position: THREE.Vector3, direction: THREE.Vector3) => {
-    // The character throws the tomato from the given position and direction
-    setIsTomatoHeld(false);
-    setThrowState({
-      initialPosition: position.clone(),
-      initialVelocity: direction.clone(), 
-      time: 0,
-    });
+  const handleDialogProgress = () => {
+    if (!hasSpokenToNPC) {
+      setDialogState(prev => {
+        if (prev >= 3) {
+          setHasSpokenToNPC(true);
+          return 0;
+        }
+        return prev + 1;
+      });
+    }
   };
 
   const handlePositionUpdate = (pos: THREE.Vector3) => {
@@ -117,9 +110,18 @@ const [tomatoThrowDirection, setTomatoThrowDirection] = useState<THREE.Vector3 |
             isHoldingTomato={isTomatoHeld}
             isNearTomato={isNearTomato}
             handBoneRef={handBoneRef}
+            isNearNPC={isNearNPC}
+            onDialogProgress={handleDialogProgress}
+            canAscend={canAscend}
+            onCanAscend={() => setCanAscend(true)}
+            onTomatoOffer={() => setIsTomatoHeld(false)}
           />
           <Nature />
-          <HutNPC />
+          <HutNPC 
+            onNearNPC={setIsNearNPC}
+            characterPosition={characterPositionRef.current}
+            hasSpokenToNPC={hasSpokenToNPC}
+          />
           <Tomato 
             position={new THREE.Vector3(-10, 0, -20)}
             characterPosition={characterPositionRef.current}
@@ -131,12 +133,13 @@ const [tomatoThrowDirection, setTomatoThrowDirection] = useState<THREE.Vector3 |
             throwData={throwData}
           />
           <Ascension 
-            position={new THREE.Vector3(50, 0, 0)} 
+            position={new THREE.Vector3(0, 0, -100)} 
             characterPosition={characterPositionRef.current}
             onAscensionStateChange={handleAscensionStateChange}
+            canAscend={canAscend}
           />
           <Idol
-            position={new THREE.Vector3(10, 0, 10)}
+            position={new THREE.Vector3(0, 0, 10)}
             characterPosition={characterPositionRef.current}
             onNearbyChange={setIsNearIdol}
           />
@@ -149,15 +152,52 @@ const [tomatoThrowDirection, setTomatoThrowDirection] = useState<THREE.Vector3 |
         initialState={(active) => active}
       />
 
-      {isNearIdol && (
+      {/* Quest UI */}
+      {isNearNPC && !hasSpokenToNPC && dialogState === 0 && (
         <div className="fixed top-4 left-1/2 transform -translate-x-1/2 text-white bg-black bg-opacity-50 px-4 py-2 rounded">
-          Press E to interact
+          Press E to talk to the villager
+        </div>
+      )}
+
+      {dialogState > 0 && (
+        <div className="fixed bottom-20 left-1/2 transform -translate-x-1/2 text-white bg-black bg-opacity-80 px-6 py-4 rounded max-w-lg">
+          {dialogState === 1 && (
+            <>
+              <p className="text-yellow-300 mb-2">Villager:</p>
+              <p>Ah, a seeker of enlightenment! The ancient idol awaits an offering.</p>
+            </>
+          )}
+          {dialogState === 2 && (
+            <>
+              <p className="text-yellow-300 mb-2">Villager:</p>
+              <p>Bring the sacred tomato to the idol. Only then may you receive its blessing.</p>
+            </>
+          )}
+          {dialogState === 3 && (
+            <>
+              <p className="text-yellow-300 mb-2">Villager:</p>
+              <p>Go now. The tomato can be found to the east.</p>
+            </>
+          )}
+          <p className="mt-4 text-gray-300 text-sm">Press E to continue</p>
         </div>
       )}
 
       {isNearTomato && !isTomatoHeld && (
         <div className="fixed top-4 left-1/2 transform -translate-x-1/2 text-white bg-black bg-opacity-50 px-4 py-2 rounded">
           Press E to pick up tomato
+        </div>
+      )}
+
+      {isNearIdol && isTomatoHeld && !canAscend && (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 text-white bg-black bg-opacity-50 px-4 py-2 rounded">
+          Press E to offer the tomato to the idol
+        </div>
+      )}
+
+      {isNearIdol && canAscend && (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 text-white bg-black bg-opacity-50 px-4 py-2 rounded">
+          Press E to pray and begin ascension
         </div>
       )}
 

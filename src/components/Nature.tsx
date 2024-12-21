@@ -55,11 +55,11 @@ const Nature: React.FC = () => {
   const objects = useMemo(() => {
     const arr: JSX.Element[] = [];
     for (let i = 0; i < 100; i++) {
-      const idx = Math.floor(Math.random() * 11) + 1;
+      const idx = Math.floor(Math.random() * 5) + 1;
       const pos = new THREE.Vector3(
-        Math.ceil(Math.random() * 450) * (Math.round(Math.random()) ? 1 : -1),
+        Math.ceil(Math.random() * 300) * (Math.round(Math.random()) ? 1 : -1),
         0,
-        Math.ceil(Math.random() * 450) * (Math.round(Math.random()) ? 1 : -1)
+        Math.ceil(Math.random() * 300) * (Math.round(Math.random()) ? 1 : -1)
       );
 
       const modelClone =
