@@ -1,7 +1,9 @@
 import { useFrame } from "@react-three/fiber";
 import React, { useEffect, useRef, useMemo } from "react";
 import { useGLTF, useAnimations } from "@react-three/drei";
+import { useLoader } from "@react-three/fiber";
 import * as THREE from "three";
+import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader";
 
 interface IdolProps {
   position?: THREE.Vector3;
@@ -19,6 +21,7 @@ const Idol: React.FC<IdolProps> = ({
 }) => {
   const basePath = process.env.PUBLIC_URL || "";
   const group = useRef<THREE.Group>(null!);
+  const shrineModel = useLoader(FBXLoader, `${basePath}/textures/nature/Shrine.fbx`);
   const { scene, animations } = useGLTF(`${basePath}/character/enlightenedcreature.glb`);
   const { actions, mixer } = useAnimations(animations, group);
   const currentAnimation = useRef<THREE.AnimationAction | null>(null);
@@ -27,6 +30,8 @@ const Idol: React.FC<IdolProps> = ({
   const idolPosition = useMemo(() => position.clone(), [position]);
 
   useEffect(() => {
+    shrineModel.scale.setScalar(0.04);
+
     scene.scale.setScalar(20); 
     scene.position.y = 2;
     
@@ -80,6 +85,7 @@ const Idol: React.FC<IdolProps> = ({
   return (
     <group ref={group} position={idolPosition}>
       <primitive object={scene} />
+      <primitive object={shrineModel} />
     </group>
   );
 };

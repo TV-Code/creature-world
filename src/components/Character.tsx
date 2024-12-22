@@ -180,6 +180,7 @@ const Character: React.FC<CharacterProps> = ({
         return { position: targetPosition, collision: false };
       }
 
+      // Maintain interval-based checking
       timeSinceLastCheck.current += delta;
       if (timeSinceLastCheck.current < COLLISION_CHECK_INTERVAL) {
         return {
@@ -192,6 +193,7 @@ const Character: React.FC<CharacterProps> = ({
       const directionToCamera = targetPosition.clone().sub(characterPos).normalize();
       const distance = characterPos.distanceTo(targetPosition);
 
+      // Enhanced collision detection
       cameraRaycaster.set(characterPos, directionToCamera);
       const intersects = cameraRaycaster.intersectObject(terrainMesh.current);
 
@@ -199,21 +201,42 @@ const Character: React.FC<CharacterProps> = ({
         const hitDistance = intersects[0].distance;
         if (hitDistance < distance) {
           const adjustedDistance = Math.max(
-            MIN_CAMERA_DISTANCE,
+            MIN_CAMERA_DISTANCE + 1, // Slightly increased minimum distance
             hitDistance - CAMERA_COLLISION_PADDING
           );
+          
+          const newPosition = characterPos.clone().add(
+            directionToCamera.multiplyScalar(adjustedDistance)
+          );
+
+          // Store last valid position
+          lastValidCameraPosition.current.copy(newPosition);
+          
           return {
-            position: characterPos.clone().add(directionToCamera.multiplyScalar(adjustedDistance)),
+            position: newPosition,
             collision: true,
           };
         }
       }
 
+      // Enhanced terrain height check
       const terrainHeight = getTerrainHeight(targetPosition);
       if (targetPosition.y < terrainHeight + CAMERA_COLLISION_PADDING) {
-        targetPosition.y = terrainHeight + CAMERA_COLLISION_PADDING;
-        return { position: targetPosition, collision: true };
+        const adjustedPosition = targetPosition.clone();
+        adjustedPosition.y = terrainHeight + CAMERA_COLLISION_PADDING;
+        
+        // Store last valid position
+        lastValidCameraPosition.current.copy(adjustedPosition);
+        
+        return { 
+          position: adjustedPosition, 
+          collision: true 
+        };
       }
+
+      // No collision - update last valid position
+      lastValidCameraPosition.current.copy(targetPosition);
+      isColliding.current = false;
 
       return { position: targetPosition, collision: false };
     },
@@ -223,6 +246,11 @@ const Character: React.FC<CharacterProps> = ({
   // Animation handlers
   const startPickupAnimation = useCallback(() => {
     const { lift, idle } = animations;
+    console.log("Cannot start lift:", {
+      hasLift: !!animations.lift,
+      hasMixer: !!mixerRef.current,
+      isPlayingLift
+    });
     if (!lift || !mixerRef.current || isPlayingLift) return;
 
     setIsPlayingLift(true);
@@ -347,22 +375,13 @@ const Character: React.FC<CharacterProps> = ({
         case "KeyE":
           if (isNearNPC) {
             onDialogProgress?.();
+          } else if (isNearTomato && !isHoldingTomato && !isPlayingLift && !isPlayingThrow && !canAscend) {
+            startPickupAnimation();
           } else if (isNearIdol && isHoldingTomato && !canAscend) {
             onTomatoOffer?.();
             onCanAscend?.();
           } else if (isNearIdol && canAscend) {
-            // Start prayer
             setIsPraying(true);
-            setMovement({
-              forward: false,
-              backward: false,
-              left: false,
-              right: false,
-              run: false,
-              jump: false,
-            });
-          } else if (isNearTomato && !isHoldingTomato && !isPlayingLift && !isPlayingThrow) {
-            startPickupAnimation();
           }
           break;
         case "KeyF":
@@ -627,25 +646,51 @@ const Character: React.FC<CharacterProps> = ({
 
     // Prayer
     if (isPraying) {
-      if (!isPlayingPrayer.current && currentActionRef.current !== animations.prayer) {
+      if (!isPlayingPrayer.current) {
         isPlayingPrayer.current = true;
-
+  
         if (animations.prayer) {
-          crossFadeTo(animations.prayer, 0.2);
-
-          // Once prayer finishes, crossfade back to idle
-          const onPrayerDone = () => {
-            mixerRef.current?.removeEventListener("finished", onPrayerDone);
+          // Stop any current animation immediately
+          if (currentActionRef.current) {
+            currentActionRef.current.stop();
+          }
+  
+          // Start prayer animation
+          animations.prayer.reset();
+          animations.prayer.setLoop(THREE.LoopOnce, 0);
+          animations.prayer.clampWhenFinished = true;
+          animations.prayer.play();
+          currentActionRef.current = animations.prayer;
+  
+          const onPrayerComplete = () => {
+            // Remove listener first
+            mixerRef.current?.removeEventListener('finished', onPrayerComplete);
+            
+            // Stop the prayer animation
+            animations.prayer.stop();
+            
+            // Reset flags
             isPlayingPrayer.current = false;
             setIsPraying(false);
-
-            if (animations.idle) crossFadeTo(animations.idle, 0.2);
+            
+            // Start idle animation
+            if (animations.idle) {
+              animations.idle.reset();
+              animations.idle.play();
+              currentActionRef.current = animations.idle;
+            }
           };
-
-          mixerRef.current?.addEventListener("finished", onPrayerDone);
+  
+          mixerRef.current.removeEventListener('finished', onPrayerComplete);
+          mixerRef.current.addEventListener('finished', onPrayerComplete);
         }
       }
-      return;
+      
+      // Keep character grounded during prayer
+      const terrainHeight = getTerrainHeight(groupRef.current.position);
+      groupRef.current.position.y = terrainHeight;
+      
+      return; // Skip other updates while praying
     }
 
     // ----- Normal Movement & Physics -----
@@ -741,6 +786,7 @@ const Character: React.FC<CharacterProps> = ({
     // Camera positioning
     const theta = cameraRotation.current;
     const phi = Math.PI * cameraPitch.current;
+    
     const idealOffset = new THREE.Vector3(
       CAMERA_DISTANCE * Math.sin(theta) * Math.sin(phi),
       CAMERA_HEIGHT * Math.cos(phi),
@@ -753,30 +799,25 @@ const Character: React.FC<CharacterProps> = ({
       groupRef.current.position,
       delta
     );
-
+    
+    // Smooth camera movement based on collision state
     if (collisionResult.collision) {
       if (!isColliding.current) {
         targetCameraRotation.current = cameraRotation.current;
       }
       isColliding.current = true;
+      
       if (lastValidCameraPosition.current) {
-        targetPosition.lerp(lastValidCameraPosition.current, 0.5);
+        camera.position.lerp(collisionResult.position, CAMERA_SMOOTHING * 0.7); // Slower smoothing during collision
       }
-    } else {
-      isColliding.current = false;
-      lastValidCameraPosition.current.copy(collisionResult.position);
-    }
-
-    if (isFirstFrame.current) {
-      camera.position.copy(collisionResult.position);
-      isFirstFrame.current = false;
     } else {
       camera.position.lerp(collisionResult.position, CAMERA_SMOOTHING);
     }
 
-    const lookAtPosition = groupRef.current.position
-      .clone()
-      .add(new THREE.Vector3(0, CAMERA_HEIGHT * 0.3 + CHARACTER_HEIGHT_OFFSET, 0));
+    // Update look-at
+    const lookAtPosition = groupRef.current.position.clone().add(
+      new THREE.Vector3(0, CAMERA_HEIGHT * 0.3 + CHARACTER_HEIGHT_OFFSET, 0)
+    );
     camera.lookAt(lookAtPosition);
   });
 
