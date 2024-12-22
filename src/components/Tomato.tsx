@@ -17,6 +17,7 @@ interface TomatoProps {
   onNearTomato?: () => void;
   onLeaveTomato?: () => void;
   isHeld?: boolean;
+  isOffered?: boolean;
   handBone?: THREE.Bone | null;
   throwData?: {
     position: THREE.Vector3;
@@ -41,7 +42,8 @@ export const Tomato: React.FC<TomatoProps> = ({
   onLeaveTomato,
   isHeld = false,
   handBone = null,
-  throwData = null
+  throwData = null,
+  isOffered
 }) => {
   const basePath = process.env.PUBLIC_URL || "";
   const group = useRef<THREE.Group>(null!);
@@ -62,14 +64,14 @@ export const Tomato: React.FC<TomatoProps> = ({
     }
   }, [throwData]);
 
-  useEffect(() => {
-    if (!isHeld && throwState === null) {
-      // Reset to resting position if not held and not being thrown
-      if (group.current) {
-        group.current.position.copy(restingPosition);
-      }
-    }
-  }, [isHeld, throwState, restingPosition]);
+  // useEffect(() => {
+  //   if (!isHeld && throwState === null) {
+  //     // Reset to resting position if not held and not being thrown
+  //     if (group.current) {
+  //       group.current.position.copy(restingPosition);
+  //     }
+  //   }
+  // }, [isHeld, throwState, restingPosition]);
 
   useFrame((_, delta) => {
     if (!group.current) return;
@@ -82,7 +84,7 @@ export const Tomato: React.FC<TomatoProps> = ({
       handBone.getWorldQuaternion(handWorldQuaternion);
 
       // Apply offset relative to hand
-      const offset = new THREE.Vector3(0, -0.2, 0.5).applyQuaternion(handWorldQuaternion);
+      const offset = new THREE.Vector3(0, 0.1, 0.8).applyQuaternion(handWorldQuaternion);
       const targetPosition = handWorldPosition.clone().add(offset);
 
       // Smooth transition to hand position
@@ -90,9 +92,9 @@ export const Tomato: React.FC<TomatoProps> = ({
 
       // Match hand rotation
       const targetRotation = new THREE.Euler().setFromQuaternion(handWorldQuaternion);
-      group.current.rotation.x = THREE.MathUtils.lerp(group.current.rotation.x, targetRotation.x, delta * 10);
-      group.current.rotation.y = THREE.MathUtils.lerp(group.current.rotation.y, targetRotation.y, delta * 10);
-      group.current.rotation.z = THREE.MathUtils.lerp(group.current.rotation.z, targetRotation.z, delta * 10);
+      group.current.rotation.x = THREE.MathUtils.lerp(group.current.rotation.x, targetRotation.x + 1, delta * 10);
+      group.current.rotation.y = THREE.MathUtils.lerp(group.current.rotation.y, targetRotation.y - 2.5, delta * 10);
+      group.current.rotation.z = THREE.MathUtils.lerp(group.current.rotation.z, targetRotation.z + 1, delta * 10);
     }
     // Handle being thrown
     else if (throwState) {
@@ -118,10 +120,15 @@ export const Tomato: React.FC<TomatoProps> = ({
       }
     }
     // Handle resting state
-    else if (!isHeld) {
-      group.current.position.copy(restingPosition);
+    else if (isOffered) {
+      console.log('offered')
+      group.current.position.copy(new THREE.Vector3(0, 0.6, -32));
       group.current.rotation.set(0, 0, 0);
-
+      
+    } else if (!isHeld) {
+      // group.current.position.copy(restingPosition);
+      // group.current.rotation.set(0, 0, 0);
+      
       // Check proximity to character
       if (characterPosition) {
         const distance = restingPosition.distanceTo(characterPosition);

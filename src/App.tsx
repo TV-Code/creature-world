@@ -61,6 +61,7 @@ function App() {
       setDialogState(prev => {
         if (prev >= 3) {
           setHasSpokenToNPC(true);
+          setIsNearNPC(false);
           return 0;
         }
         return prev + 1;
@@ -123,12 +124,13 @@ function App() {
             hasSpokenToNPC={hasSpokenToNPC}
           />
           <Tomato 
-            position={new THREE.Vector3(-10, 0, -20)}
+            position={new THREE.Vector3(-100, 0, 40)}
             characterPosition={characterPositionRef.current}
             characterRotation={characterRotationRef.current}
             onNearTomato={() => setIsNearTomato(true)}
             onLeaveTomato={() => setIsNearTomato(false)}
             isHeld={isTomatoHeld}
+            isOffered={canAscend}
             handBone={handBoneRef.current}
             throwData={throwData}
           />
@@ -139,7 +141,7 @@ function App() {
             canAscend={canAscend}
           />
           <Idol
-            position={new THREE.Vector3(0, 0, 10)}
+            position={new THREE.Vector3(0, 0, -40)}
             characterPosition={characterPositionRef.current}
             onNearbyChange={setIsNearIdol}
           />
@@ -201,11 +203,11 @@ function App() {
         </div>
       )}
 
-      {isTomatoHeld && (
+      {/* {isTomatoHeld && (
         <div className="fixed top-4 left-1/2 transform -translate-x-1/2 text-white bg-black bg-opacity-50 px-4 py-2 rounded">
           Press F to throw tomato
         </div>
-      )}
+      )} */}
     </div>
   );
 }

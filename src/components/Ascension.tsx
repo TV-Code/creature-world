@@ -95,6 +95,8 @@ export const Ascension: React.FC<AscensionProps> = ({
   }, []);
 
   useFrame((_, delta) => {
+    if (!canAscend) return;
+
     // Update shader time
     shaderMaterial.uniforms.time.value += delta;
 
