@@ -81,7 +81,7 @@ export const Ascension: React.FC<AscensionProps> = ({
   canAscend
 }) => {
   const cylinderRadius = 5;
-  const cylinderHeight = 300;
+  const cylinderHeight = 500;
 
   const shaderMaterial = useMemo(() => {
     return new THREE.ShaderMaterial({
@@ -107,7 +107,7 @@ export const Ascension: React.FC<AscensionProps> = ({
         characterPosition.z - position.z
       ).length();
 
-      if (distance < cylinderRadius && canAscend) {
+      if (distance < (cylinderRadius - 1) && canAscend) {
         onAscensionStateChange?.(true);
       } else {
         onAscensionStateChange?.(false);

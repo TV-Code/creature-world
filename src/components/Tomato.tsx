@@ -121,7 +121,6 @@ export const Tomato: React.FC<TomatoProps> = ({
     }
     // Handle resting state
     else if (isOffered) {
-      console.log('offered')
       group.current.position.copy(new THREE.Vector3(0, 0.6, -32));
       group.current.rotation.set(0, 0, 0);
       
