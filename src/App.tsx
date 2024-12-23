@@ -79,7 +79,6 @@ function App() {
 
   const handleAscensionStateChange = (isInBeam: boolean) => {
     setIsAscending(isInBeam);
-    console.log("Ascension state changed:", isInBeam);
   };
 
   return (
@@ -185,7 +184,7 @@ function App() {
         </div>
       )}
 
-      {isNearTomato && !isTomatoHeld && (
+      {isNearTomato && !isTomatoHeld && !canAscend && (
         <div className="fixed top-4 left-1/2 transform -translate-x-1/2 text-white bg-black bg-opacity-50 px-4 py-2 rounded">
           Press E to pick up tomato
         </div>

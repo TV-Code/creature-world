@@ -114,6 +114,7 @@ const Character: React.FC<CharacterProps> = ({
   const liftTimeRef = useRef(0);
   const throwTimeRef = useRef(0);
   const timeSinceLastCheck = useRef(0);
+  const isPrayingTransitionComplete = useRef(false);
 
   // Camera controls
   const cameraInitialized = useRef(false);
@@ -645,53 +646,46 @@ const Character: React.FC<CharacterProps> = ({
     }
 
     // Prayer
-    if (isPraying) {
-      if (!isPlayingPrayer.current) {
-        isPlayingPrayer.current = true;
-  
-        if (animations.prayer) {
-          // Stop any current animation immediately
-          if (currentActionRef.current) {
-            currentActionRef.current.stop();
+// Prayer handling
+if (isPraying) {
+  if (!isPlayingPrayer.current) {
+    isPlayingPrayer.current = true;
+
+    if (animations.prayer) {
+      // Store reference to prayer and idle animations
+      const prayerAction = animations.prayer;
+      const idleAction = animations.idle;
+
+      // Start prayer animation
+      crossFadeTo(prayerAction, 0.2);
+
+      const onPrayerComplete = () => {
+        // Immediately remove the listener to prevent duplicate calls
+        mixerRef.current?.removeEventListener('finished', onPrayerComplete);
+        
+        // Set prayer state to false BEFORE animation changes
+        isPlayingPrayer.current = false;
+        setIsPraying(false);
+
+        // Wait one frame before transitioning to idle
+        requestAnimationFrame(() => {
+          if (idleAction && mixerRef.current) {
+            crossFadeTo(idleAction, 0.2);
           }
-  
-          // Start prayer animation
-          animations.prayer.reset();
-          animations.prayer.setLoop(THREE.LoopOnce, 0);
-          animations.prayer.clampWhenFinished = true;
-          animations.prayer.play();
-          currentActionRef.current = animations.prayer;
-  
-          const onPrayerComplete = () => {
-            // Remove listener first
-            mixerRef.current?.removeEventListener('finished', onPrayerComplete);
-            
-            // Stop the prayer animation
-            animations.prayer.stop();
-            
-            // Reset flags
-            isPlayingPrayer.current = false;
-            setIsPraying(false);
-            
-            // Start idle animation
-            if (animations.idle) {
-              animations.idle.reset();
-              animations.idle.play();
-              currentActionRef.current = animations.idle;
-            }
-          };
-  
-          mixerRef.current.removeEventListener('finished', onPrayerComplete);
-          mixerRef.current.addEventListener('finished', onPrayerComplete);
-        }
-      }
-      
-      // Keep character grounded during prayer
-      const terrainHeight = getTerrainHeight(groupRef.current.position);
-      groupRef.current.position.y = terrainHeight;
-      
-      return; // Skip other updates while praying
+        });
+      };
+
+      // Clean up old listener before adding new one
+      mixerRef.current.removeEventListener('finished', onPrayerComplete);
+      mixerRef.current.addEventListener('finished', onPrayerComplete);
     }
+  }
+
+  // Keep character grounded during prayer
+  const terrainHeight = getTerrainHeight(groupRef.current.position);
+  groupRef.current.position.y = terrainHeight;
+  return;
+}
 
     // ----- Normal Movement & Physics -----
     // Distinguish "translating" vs. "rotating only"
