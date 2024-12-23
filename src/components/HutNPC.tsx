@@ -17,13 +17,14 @@ const HutNPC: React.FC<HutNPCProps> = ({
     characterPosition,
     hasSpokenToNPC = false 
 }) => {
+    const basePath = process.env.PUBLIC_URL || "";
     const npcRef = useRef<THREE.Group>(null!);
     const mixerRef = useRef<THREE.AnimationMixer | null>(null);
     const lastDistance = useRef<number>(Infinity);
     const wasNear = useRef<boolean>(false);
 
-    const hutModel = useLoader(FBXLoader, '/textures/nature/Creature Hut.fbx');
-    const { scene: npcModel, animations } = useGLTF('/character/CreatureNPC.glb');
+    const hutModel = useLoader(FBXLoader, `${basePath}/textures/nature/Creature Hut.fbx`);
+    const { scene: npcModel, animations } = useGLTF(`${basePath}/character/CreatureNPC.glb`);
 
     useEffect(() => {
         // Setup hut
