@@ -6,11 +6,16 @@ import React, {
   useState,
   useMemo,
 } from "react";
+import { useMultiplayerStore } from './MultiplayerManager';
+import { AnimationName, PlayerUpdate, PlayerState } from '../types/multiplayer';
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader";
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import * as THREE from "three";
 import { Group } from "three";
 
-// Constants
+//////////////////////////////////////////////
+//               CONSTANTS
+//////////////////////////////////////////////
 const CHARACTER_SPEED = 15; // Units per second
 const JUMP_FORCE = 19;
 const GRAVITY = -50;
@@ -33,7 +38,21 @@ const THROW_RELEASE_TIME = 0.7;
 const COLLISION_CHECK_INTERVAL = 0.1;
 const ASCENSION_SPEED = 0.2;
 
-// Types
+//////////////////////////////////////////////
+//            GLOBAL FLAGS
+//////////////////////////////////////////////
+declare global {
+  interface Window {
+    tomatoPickedUp: boolean;
+    tomatoThrown: boolean;
+  }
+}
+window.tomatoPickedUp = false;
+window.tomatoThrown = false;
+
+//////////////////////////////////////////////
+//            TYPES & INTERFACES
+//////////////////////////////////////////////
 interface CharacterProps {
   camera: THREE.PerspectiveCamera;
   isNearIdol?: boolean;
@@ -50,20 +69,35 @@ interface CharacterProps {
   isHoldingTomato?: boolean;
   isNearTomato?: boolean;
   handBoneRef?: React.MutableRefObject<THREE.Bone | null>;
+  isLocalPlayer: boolean;
+  remoteState?: PlayerState;
 }
 
-// Extend global interface
-declare global {
-  interface Window {
-    tomatoPickedUp: boolean;
-    tomatoThrown: boolean;
+// Utility to map FBX clip name => your custom enum
+const getAnimationName = (clipName: string | undefined): AnimationName => {
+  switch (clipName?.toLowerCase()) {
+    case "walking":
+      return "walk";
+    case "running":
+      return "run";
+    case "jump":
+      return "jump";
+    case "praying":
+      return "prayer";
+    case "floating":
+      return "float";
+    case "lifting":
+      return "lift";
+    case "throwing":
+      return "throw";
+    default:
+      return "idle";
   }
-}
+};
 
-// Initialize globals
-window.tomatoPickedUp = false;
-window.tomatoThrown = false;
-
+//////////////////////////////////////////////
+//           CHARACTER COMPONENT
+//////////////////////////////////////////////
 const Character: React.FC<CharacterProps> = ({
   camera,
   isNearIdol = false,
@@ -80,57 +114,24 @@ const Character: React.FC<CharacterProps> = ({
   onDialogProgress,
   onCanAscend,
   onTomatoOffer,
+  isLocalPlayer = false,
+  remoteState
 }) => {
-  // Scene and references
+  ////////////////////////////////////////////////////
+  //                 REFS & STATES
+  ////////////////////////////////////////////////////
   const { scene } = useThree();
   const groupRef = useRef<Group>(null!);
-  const mixerRef = useRef<THREE.AnimationMixer | null>(null);
-  const rightHandBone = useRef<THREE.Bone | null>(null);
 
-  // currentAction as a ref (not state) to avoid extra re-renders
+  // For local animations
+  const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const currentActionRef = useRef<THREE.AnimationAction | null>(null);
 
-  // State
+  // For bones & states
+  const rightHandBone = useRef<THREE.Bone | null>(null);
   const [animations, setAnimations] = useState<{ [key: string]: THREE.AnimationAction }>({});
-  const [isPraying, setIsPraying] = useState(false);
-  const [isPlayingLift, setIsPlayingLift] = useState(false);
-  const [isPlayingThrow, setIsPlayingThrow] = useState(false);
-  const [characterPosition, setCharacterPosition] = useState(new THREE.Vector3());
 
-  // Memoized vectors and raycasters
-  const downVector = useMemo(() => new THREE.Vector3(0, -1, 0), []);
-  const terrainRaycaster = useMemo(() => new THREE.Raycaster(), []);
-  const cameraRaycaster = useMemo(() => new THREE.Raycaster(), []);
-
-  // Movement + physics refs
-  const rotationRef = useRef(0);
-  const isJumping = useRef(false);
-  const verticalVelocity = useRef(0);
-  const isFirstFrame = useRef(true);
-  const isPlayingPrayer = useRef(false);
-  const targetCameraRotation = useRef(0);
-  const lastValidCameraPosition = useRef(new THREE.Vector3());
-  const isColliding = useRef(false);
-  const liftTimeRef = useRef(0);
-  const throwTimeRef = useRef(0);
-  const timeSinceLastCheck = useRef(0);
-  const isPrayingTransitionComplete = useRef(false);
-
-  // Camera controls
-  const cameraInitialized = useRef(false);
-  const isRightMouseDown = useRef(false);
-  const lastMouseX = useRef(0);
-  const lastMouseY = useRef(0);
-  const cameraRotation = useRef(0);
-  const cameraPitch = useRef(1);
-
-  // Terrain reference
-  const terrainMesh = useRef<THREE.Mesh | null>(null);
-  useEffect(() => {
-    terrainMesh.current = scene.getObjectByName("terrain") as THREE.Mesh;
-  }, [scene]);
-
-  // Movement state
+  // Movement states
   const [movement, setMovement] = useState({
     forward: false,
     backward: false,
@@ -140,276 +141,245 @@ const Character: React.FC<CharacterProps> = ({
     jump: false,
   });
 
-  // ---- HELPER: Crossfade from oldAction to newAction ----
+  // Various flags
+  const [isPraying, setIsPraying] = useState(false);
+  const [isPlayingLift, setIsPlayingLift] = useState(false);
+  const [isPlayingThrow, setIsPlayingThrow] = useState(false);
+  const [characterPosition, setCharacterPosition] = useState(new THREE.Vector3());
+
+  // Refs for jump & physics
+  const isJumping = useRef(false);
+  const verticalVelocity = useRef(0);
+
+  // Timers
+  const liftTimeRef = useRef(0);
+  const throwTimeRef = useRef(0);
+  const isPlayingPrayer = useRef(false);
+
+  // Camera and collision
+  const terrainMesh = useRef<THREE.Mesh | null>(null);
+  const terrainRaycaster = useMemo(() => new THREE.Raycaster(), []);
+  const cameraRaycaster = useMemo(() => new THREE.Raycaster(), []);
+  const lastValidCameraPosition = useRef(new THREE.Vector3());
+  const isColliding = useRef(false);
+  const timeSinceLastCheck = useRef(0);
+
+  // Camera control
+  const cameraInitialized = useRef(false);
+  const isRightMouseDown = useRef(false);
+  const lastMouseX = useRef(0);
+  const lastMouseY = useRef(0);
+  const cameraRotation = useRef(0);
+  const cameraPitch = useRef(1);
+  const rotationRef = useRef(0);
+
+  // Multiplayer
+  const socket = useMultiplayerStore((state) => state.socket);
+
+  ////////////////////////////////////////////////////
+  //               LOAD FBX MODELS
+  ////////////////////////////////////////////////////
+  const characterModel = useLoader(FBXLoader, "./character/BreathingIdle.fbx");
+  const walkAnim = useLoader(FBXLoader, "./character/Walking.fbx");
+  const runAnim = useLoader(FBXLoader, "./character/Running.fbx");
+  const jumpAnim = useLoader(FBXLoader, "./character/Jump.fbx");
+  const prayerAnim = useLoader(FBXLoader, "./character/Praying.fbx");
+  const liftAnim = useLoader(FBXLoader, "./character/Lifting.fbx");
+  const throwAnim = useLoader(FBXLoader, "./character/Throwing.fbx");
+  const floatAnim = useLoader(FBXLoader, "./character/Floating.fbx");
+
+  ////////////////////////////////////////////////////
+  //        CROSSFADE THAT STOPS OLD ACTIONS
+  ////////////////////////////////////////////////////
   const crossFadeTo = useCallback(
     (newAction: THREE.AnimationAction, fadeDuration: number = 0.2) => {
       const oldAction = currentActionRef.current;
-      if (oldAction === newAction) return; // Already playing this action
+      if (!newAction || oldAction === newAction) return;
 
-      newAction.enabled = true;
-      newAction.setEffectiveTimeScale(1.0);
-      newAction.setEffectiveWeight(1.0);
-      newAction.reset();
-      newAction.play();
+      newAction.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play();
 
       if (oldAction) {
-        // Crossfade from old to new
-        newAction.crossFadeFrom(oldAction, fadeDuration, true);
+        // Fade out oldAction over fadeDuration
+        newAction.crossFadeFrom(oldAction, fadeDuration, false);
+
+        // Once fade is done, forcibly stop the old action
+        setTimeout(() => {
+          oldAction.stop();
+          oldAction.enabled = false;
+        }, fadeDuration * 1000);
       }
+
       currentActionRef.current = newAction;
     },
     []
   );
 
-  // Terrain height calculation
+  ////////////////////////////////////////////////////
+  //          HELPER: GET TERRAIN HEIGHT
+  ////////////////////////////////////////////////////
   const getTerrainHeight = useCallback(
-    (position: THREE.Vector3): number => {
+    (pos: THREE.Vector3): number => {
       if (!terrainMesh.current) return CHARACTER_HEIGHT_OFFSET;
-      terrainRaycaster.set(new THREE.Vector3(position.x, 100, position.z), downVector);
-      const intersects = terrainRaycaster.intersectObject(terrainMesh.current);
-      return intersects.length > 0
-        ? intersects[0].point.y + CHARACTER_HEIGHT_OFFSET
-        : CHARACTER_HEIGHT_OFFSET;
+      terrainRaycaster.set(new THREE.Vector3(pos.x, 100, pos.z), new THREE.Vector3(0, -1, 0));
+      const hits = terrainRaycaster.intersectObject(terrainMesh.current);
+      return hits.length > 0 ? hits[0].point.y + CHARACTER_HEIGHT_OFFSET : CHARACTER_HEIGHT_OFFSET;
     },
-    [downVector]
+    []
   );
 
-  // Camera collision check
+  ////////////////////////////////////////////////////
+  //        CAMERA COLLISION / ADJUSTMENT
+  ////////////////////////////////////////////////////
   const adjustCameraForCollision = useCallback(
-    (targetPosition: THREE.Vector3, characterPos: THREE.Vector3, delta: number) => {
-      if (!terrainMesh.current) {
-        return { position: targetPosition, collision: false };
-      }
+    (targetPos: THREE.Vector3, charPos: THREE.Vector3, delta: number) => {
+      if (!terrainMesh.current) return { position: targetPos, collision: false };
 
-      // Maintain interval-based checking
       timeSinceLastCheck.current += delta;
       if (timeSinceLastCheck.current < COLLISION_CHECK_INTERVAL) {
         return {
-          position: isColliding.current ? lastValidCameraPosition.current : targetPosition,
+          position: isColliding.current ? lastValidCameraPosition.current : targetPos,
           collision: isColliding.current,
         };
       }
       timeSinceLastCheck.current = 0;
 
-      const directionToCamera = targetPosition.clone().sub(characterPos).normalize();
-      const distance = characterPos.distanceTo(targetPosition);
-
-      // Enhanced collision detection
-      cameraRaycaster.set(characterPos, directionToCamera);
+      // Basic geometry collision
+      const dirToCam = targetPos.clone().sub(charPos).normalize();
+      const dist = charPos.distanceTo(targetPos);
+      cameraRaycaster.set(charPos, dirToCam);
       const intersects = cameraRaycaster.intersectObject(terrainMesh.current);
-
       if (intersects.length > 0) {
         const hitDistance = intersects[0].distance;
-        if (hitDistance < distance) {
-          const adjustedDistance = Math.max(
-            MIN_CAMERA_DISTANCE + 1, // Slightly increased minimum distance
-            hitDistance - CAMERA_COLLISION_PADDING
-          );
-          
-          const newPosition = characterPos.clone().add(
-            directionToCamera.multiplyScalar(adjustedDistance)
-          );
-
-          // Store last valid position
-          lastValidCameraPosition.current.copy(newPosition);
-          
-          return {
-            position: newPosition,
-            collision: true,
-          };
+        if (hitDistance < dist) {
+          const newDist = Math.max(MIN_CAMERA_DISTANCE + 1, hitDistance - CAMERA_COLLISION_PADDING);
+          const newPos = charPos.clone().add(dirToCam.multiplyScalar(newDist));
+          lastValidCameraPosition.current.copy(newPos);
+          return { position: newPos, collision: true };
         }
       }
 
-      // Enhanced terrain height check
-      const terrainHeight = getTerrainHeight(targetPosition);
-      if (targetPosition.y < terrainHeight + CAMERA_COLLISION_PADDING) {
-        const adjustedPosition = targetPosition.clone();
-        adjustedPosition.y = terrainHeight + CAMERA_COLLISION_PADDING;
-        
-        // Store last valid position
-        lastValidCameraPosition.current.copy(adjustedPosition);
-        
-        return { 
-          position: adjustedPosition, 
-          collision: true 
-        };
+      // Terrain height collision
+      const terrainY = getTerrainHeight(targetPos);
+      if (targetPos.y < terrainY + CAMERA_COLLISION_PADDING) {
+        const adjPos = targetPos.clone();
+        adjPos.y = terrainY + CAMERA_COLLISION_PADDING;
+        lastValidCameraPosition.current.copy(adjPos);
+        return { position: adjPos, collision: true };
       }
 
-      // No collision - update last valid position
-      lastValidCameraPosition.current.copy(targetPosition);
+      lastValidCameraPosition.current.copy(targetPos);
       isColliding.current = false;
-
-      return { position: targetPosition, collision: false };
+      return { position: targetPos, collision: false };
     },
     [getTerrainHeight]
   );
 
-  // Animation handlers
+  ////////////////////////////////////////////////////
+  //          ANIMATION HANDLERS
+  ////////////////////////////////////////////////////
   const startPickupAnimation = useCallback(() => {
     const { lift, idle } = animations;
-    console.log("Cannot start lift:", {
-      hasLift: !!animations.lift,
-      hasMixer: !!mixerRef.current,
-      isPlayingLift
-    });
     if (!lift || !mixerRef.current || isPlayingLift) return;
-
     setIsPlayingLift(true);
     liftTimeRef.current = 0;
     window.tomatoPickedUp = false;
 
     crossFadeTo(lift);
 
-    // Listen for finishing
-    const onLiftComplete = (e: any) => {
+    const onLiftComplete = (e: THREE.Event) => {
       if (e.action !== lift) return;
       mixerRef.current?.removeEventListener("finished", onLiftComplete);
-
       setIsPlayingLift(false);
-      // Crossfade back to idle
       if (idle) crossFadeTo(idle);
     };
-
     mixerRef.current.addEventListener("finished", onLiftComplete);
   }, [animations, crossFadeTo, isPlayingLift]);
 
   const startThrowAnimation = useCallback(() => {
     const { throw: throwAnim, idle } = animations;
     if (!throwAnim || !mixerRef.current || isPlayingThrow) return;
-
     setIsPlayingThrow(true);
     throwTimeRef.current = 0;
     window.tomatoThrown = false;
 
     crossFadeTo(throwAnim);
 
-    const onThrowComplete = (e: any) => {
+    const onThrowComplete = (e: THREE.Event) => {
       if (e.action !== throwAnim) return;
       mixerRef.current?.removeEventListener("finished", onThrowComplete);
-
       setIsPlayingThrow(false);
-      window.tomatoPickedUp = false; // No longer holding tomato
+      window.tomatoPickedUp = false;
       if (idle) crossFadeTo(idle);
     };
-
     mixerRef.current.removeEventListener("finished", onThrowComplete);
     mixerRef.current.addEventListener("finished", onThrowComplete);
   }, [animations, crossFadeTo, isPlayingThrow]);
 
-  // Update the character position (separate small useFrame)
-  useFrame(() => {
-    if (groupRef.current) {
-      const currentPosition = groupRef.current.position.clone();
-      setCharacterPosition(currentPosition);
-      onPositionUpdate?.(currentPosition);
+  ////////////////////////////////////////////////////
+  //          KEYBOARD + MOUSE HANDLERS
+  ////////////////////////////////////////////////////
+  const handleKeyDown = useCallback((event: KeyboardEvent) => {
+    if (isPraying) return;
+
+    switch (event.code) {
+      case "KeyW":
+        setMovement((prev) => ({ ...prev, forward: true }));
+        break;
+      case "KeyS":
+        setMovement((prev) => ({ ...prev, backward: true }));
+        break;
+      case "KeyA":
+        setMovement((prev) => ({ ...prev, left: true }));
+        break;
+      case "KeyD":
+        setMovement((prev) => ({ ...prev, right: true }));
+        break;
+      case "ShiftLeft":
+        setMovement((prev) => ({ ...prev, run: true }));
+        break;
+      case "Space":
+        if (!isJumping.current) {
+          setMovement((prev) => ({ ...prev, jump: true }));
+          verticalVelocity.current = JUMP_FORCE;
+          isJumping.current = true;
+          if (animations.jump) crossFadeTo(animations.jump, 0.1);
+        }
+        break;
+      case "KeyE":
+        if (isNearNPC) {
+          onDialogProgress?.();
+        } else if (isNearTomato && !isHoldingTomato && !isPlayingLift && !isPlayingThrow && !canAscend) {
+          startPickupAnimation();
+        } else if (isNearIdol && isHoldingTomato && !canAscend) {
+          onTomatoOffer?.();
+          onCanAscend?.();
+        } else if (isNearIdol && canAscend) {
+          setIsPraying(true);
+        }
+        break;
+      case "KeyF":
+        if (isHoldingTomato && !isPlayingLift && !isPlayingThrow) {
+          startThrowAnimation();
+        }
+        break;
     }
-  });
-
-  // Mouse control
-  const handleMouseDown = useCallback((event: MouseEvent) => {
-    if (event.button === 2) {
-      isRightMouseDown.current = true;
-      lastMouseX.current = event.clientX;
-      lastMouseY.current = event.clientY;
-      event.preventDefault();
-    }
-  }, []);
-
-  const handleMouseUp = useCallback((event: MouseEvent) => {
-    if (event.button === 2) {
-      isRightMouseDown.current = false;
-    }
-  }, []);
-
-  const handleMouseMove = useCallback((event: MouseEvent) => {
-    if (isRightMouseDown.current) {
-      const deltaX = event.clientX - lastMouseX.current;
-      const deltaY = event.clientY - lastMouseY.current;
-
-      cameraRotation.current -= deltaX * MOUSE_SENSITIVITY;
-      cameraPitch.current = Math.max(
-        0.1,
-        Math.min(1.0, cameraPitch.current + deltaY * MOUSE_SENSITIVITY)
-      );
-
-      lastMouseX.current = event.clientX;
-      lastMouseY.current = event.clientY;
-    }
-  }, []);
-
-  const handleContextMenu = useCallback((event: Event) => {
-    event.preventDefault();
-  }, []);
-
-  // Keyboard handlers
-  const handleKeyDown = useCallback(
-    (event: KeyboardEvent) => {
-      if (isPraying) return;
-
-      switch (event.code) {
-        case "KeyW":
-          setMovement((prev) => ({ ...prev, forward: true }));
-          break;
-        case "KeyS":
-          setMovement((prev) => ({ ...prev, backward: true }));
-          break;
-        case "KeyA":
-          setMovement((prev) => ({ ...prev, left: true }));
-          break;
-        case "KeyD":
-          setMovement((prev) => ({ ...prev, right: true }));
-          break;
-        case "ShiftLeft":
-          setMovement((prev) => ({ ...prev, run: true }));
-          break;
-        case "Space":
-          if (!isJumping.current) {
-            setMovement((prev) => ({ ...prev, jump: true }));
-            verticalVelocity.current = JUMP_FORCE;
-            isJumping.current = true;
-
-            if (animations.jump) {
-              crossFadeTo(animations.jump, 0.1);
-            }
-          }
-          break;
-        case "KeyE":
-          if (isNearNPC) {
-            onDialogProgress?.();
-          } else if (isNearTomato && !isHoldingTomato && !isPlayingLift && !isPlayingThrow && !canAscend) {
-            startPickupAnimation();
-          } else if (isNearIdol && isHoldingTomato && !canAscend) {
-            onTomatoOffer?.();
-            onCanAscend?.();
-          } else if (isNearIdol && canAscend) {
-            setIsPraying(true);
-          }
-          break;
-        case "KeyF":
-          if (isHoldingTomato && !isPlayingLift && !isPlayingThrow) {
-            startThrowAnimation();
-          }
-          break;
-      }
-    },
-    [
-      isPraying,
-      isNearIdol,
-      isNearNPC,
-      isHoldingTomato,
-      canAscend,
-      isNearTomato,
-      isPlayingLift,
-      isPlayingThrow,
-      animations.jump,
-      crossFadeTo,
-      onDialogProgress,
-      onCanAscend,
-      onTomatoOffer,
-      startPickupAnimation,
-      startThrowAnimation,
-    ]
-  );
+  }, [
+    isPraying,
+    isNearNPC,
+    isNearIdol,
+    isHoldingTomato,
+    isPlayingLift,
+    isPlayingThrow,
+    animations.jump,
+    canAscend,
+    isNearTomato,
+    onDialogProgress,
+    onCanAscend,
+    onTomatoOffer,
+    crossFadeTo,
+    startPickupAnimation,
+    startThrowAnimation,
+  ]);
 
   const handleKeyUp = useCallback((event: KeyboardEvent) => {
     switch (event.code) {
@@ -434,17 +404,46 @@ const Character: React.FC<CharacterProps> = ({
     }
   }, []);
 
-  // Load all models/animations
-  const characterModel = useLoader(FBXLoader, "./character/BreathingIdle.fbx");
-  const walkAnim = useLoader(FBXLoader, "./character/Walking.fbx");
-  const runAnim = useLoader(FBXLoader, "./character/Running.fbx");
-  const jumpAnim = useLoader(FBXLoader, "./character/Jump.fbx");
-  const prayerAnim = useLoader(FBXLoader, "./character/Praying.fbx");
-  const liftAnim = useLoader(FBXLoader, "./character/Lifting.fbx");
-  const throwAnim = useLoader(FBXLoader, "./character/Throwing.fbx");
-  const floatAnim = useLoader(FBXLoader, "./character/Floating.fbx");
+  const handleMouseDown = useCallback((e: MouseEvent) => {
+    if (e.button === 2) {
+      isRightMouseDown.current = true;
+      lastMouseX.current = e.clientX;
+      lastMouseY.current = e.clientY;
+      e.preventDefault();
+    }
+  }, []);
 
-  // Model and animation setup
+  const handleMouseUp = useCallback((e: MouseEvent) => {
+    if (e.button === 2) {
+      isRightMouseDown.current = false;
+    }
+  }, []);
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (isRightMouseDown.current) {
+      const deltaX = e.clientX - lastMouseX.current;
+      const deltaY = e.clientY - lastMouseY.current;
+      cameraRotation.current -= deltaX * MOUSE_SENSITIVITY;
+      cameraPitch.current = Math.max(
+        0.1,
+        Math.min(1.0, cameraPitch.current + deltaY * MOUSE_SENSITIVITY)
+      );
+      lastMouseX.current = e.clientX;
+      lastMouseY.current = e.clientY;
+    }
+  }, []);
+
+  const handleContextMenu = useCallback((e: Event) => {
+    e.preventDefault();
+  }, []);
+
+  ////////////////////////////////////////////////////
+  //         SETUP THE MODEL & ANIMATIONS
+  ////////////////////////////////////////////////////
+  useEffect(() => {
+    terrainMesh.current = scene.getObjectByName("terrain") as THREE.Mesh;
+  }, [scene]);
+
   useEffect(() => {
     if (
       !characterModel ||
@@ -458,17 +457,18 @@ const Character: React.FC<CharacterProps> = ({
     )
       return;
 
-    const model = characterModel;
+    // 1) Clone the model
+    const model = SkeletonUtils.clone(characterModel) as THREE.Group;
     model.scale.setScalar(0.05);
     model.position.y = CHARACTER_HEIGHT_OFFSET;
 
-    // Create mixer
+    // 2) Mixer
     const mixer = new THREE.AnimationMixer(model);
     mixerRef.current = mixer;
 
-    const animsDict: { [key: string]: THREE.AnimationAction } = {};
+    const animDict: { [key: string]: THREE.AnimationAction } = {};
 
-    // Locate the right hand bone
+    // 3) Find right-hand bone
     model.traverse((child) => {
       if (
         child instanceof THREE.Bone &&
@@ -482,70 +482,74 @@ const Character: React.FC<CharacterProps> = ({
       }
     });
 
-    // Helper to set up an animation with optional position-track removal
+    // 4) Setup helper
     const setupAnimation = (
       source: THREE.Object3D,
       key: string,
       removePosition: boolean,
-      loopType: THREE.AnimationActionLoopStyles = THREE.LoopRepeat,
-      clampWhenFinished = false
+      loopType: THREE.AnimationActionLoopStyles,
+      clamp: boolean
     ) => {
-      if (source.animations.length > 0) {
+      if (source.animations.length) {
         const clip = source.animations[0].clone();
-
         if (removePosition) {
           clip.tracks = clip.tracks.filter(
             (track) => !track.name.toLowerCase().includes("position")
           );
         }
-
         const action = mixer.clipAction(clip);
         action.setLoop(loopType, Infinity);
-        action.clampWhenFinished = clampWhenFinished;
+        action.clampWhenFinished = clamp;
         action.enabled = true;
         action.setEffectiveWeight(1.0);
-        animsDict[key] = action;
+        animDict[key] = action;
       }
     };
 
-    // Here we selectively remove or keep position tracks:
-    setupAnimation(model, "idle", false); // Idle keeps position if any (usually none).
-    setupAnimation(walkAnim, "walk", true); // Remove position from walk
-    setupAnimation(runAnim, "run", true);   // Remove position from run
-    setupAnimation(jumpAnim, "jump", true, THREE.LoopOnce, true); // Remove root motion from jump
-    setupAnimation(prayerAnim, "prayer", false, THREE.LoopOnce, true); // Typically no root motion anyway
-    setupAnimation(floatAnim, "float", false); // For ascension—no position removal if you want
-    setupAnimation(liftAnim, "lift", false, THREE.LoopOnce, true); // Usually stays in place
-    setupAnimation(throwAnim, "throw", false, THREE.LoopOnce, true); // Usually stays in place
+    // 5) Setup each
+    // Idle, walk, run, float => Repeat
+    // jump, prayer, lift, throw => LoopOnce
+    setupAnimation(model, "idle", false, THREE.LoopRepeat, false);
+    setupAnimation(walkAnim, "walk", true, THREE.LoopRepeat, false);
+    setupAnimation(runAnim, "run", true, THREE.LoopRepeat, false);
+    setupAnimation(jumpAnim, "jump", true, THREE.LoopOnce, true);
+    setupAnimation(prayerAnim, "prayer", false, THREE.LoopOnce, true);
+    setupAnimation(floatAnim, "float", false, THREE.LoopRepeat, false);
+    setupAnimation(liftAnim, "lift", false, THREE.LoopOnce, true);
+    setupAnimation(throwAnim, "throw", false, THREE.LoopOnce, true);
 
-    setAnimations(animsDict);
+    setAnimations(animDict);
 
-    // Start with Idle
-    if (animsDict.idle) {
-      animsDict.idle.reset().play();
-      currentActionRef.current = animsDict.idle;
+    // 6) Start idle
+    if (animDict.idle) {
+      animDict.idle.reset().play();
+      currentActionRef.current = animDict.idle;
     }
 
-    // Initialize camera once
-    if (!cameraInitialized.current) {
-      const cameraOffset = new THREE.Vector3(
+    // 7) Add to group
+    groupRef.current.add(model);
+
+    // 8) If local: init camera
+    if (isLocalPlayer && !cameraInitialized.current && camera) {
+      const offset = new THREE.Vector3(
         Math.sin(rotationRef.current) * -CAMERA_DISTANCE,
         CAMERA_HEIGHT,
         Math.cos(rotationRef.current) * -CAMERA_DISTANCE
       );
-      const initialPosition = model.position.clone().add(cameraOffset);
-      camera.position.copy(initialPosition);
+      const initPos = model.position.clone().add(offset);
+      camera.position.copy(initPos);
 
-      const lookAtPosition = model.position
+      const lookAt = model.position
         .clone()
         .add(new THREE.Vector3(0, CAMERA_HEIGHT * 0.3 + CHARACTER_HEIGHT_OFFSET, 0));
-      camera.lookAt(lookAtPosition);
+      camera.lookAt(lookAt);
 
       cameraInitialized.current = true;
     }
 
     return () => {
       mixer.stopAllAction();
+      groupRef.current.remove(model);
     };
   }, [
     characterModel,
@@ -557,11 +561,16 @@ const Character: React.FC<CharacterProps> = ({
     throwAnim,
     floatAnim,
     camera,
+    isLocalPlayer,
     handBoneRef,
   ]);
 
-  // Input event listeners
+  ////////////////////////////////////////////////////
+  //     INPUT EVENT LISTENERS IF LOCAL
+  ////////////////////////////////////////////////////
   useEffect(() => {
+    if (!isLocalPlayer) return;
+
     window.addEventListener("mousedown", handleMouseDown);
     window.addEventListener("mouseup", handleMouseUp);
     window.addEventListener("mousemove", handleMouseMove);
@@ -578,6 +587,7 @@ const Character: React.FC<CharacterProps> = ({
       window.removeEventListener("keyup", handleKeyUp);
     };
   }, [
+    isLocalPlayer,
     handleMouseDown,
     handleMouseUp,
     handleMouseMove,
@@ -586,45 +596,79 @@ const Character: React.FC<CharacterProps> = ({
     handleKeyUp,
   ]);
 
-  // Main update loop
+  ////////////////////////////////////////////////////
+  //   SMALL USEFRAME TO TRACK CHARACTER POSITION
+  ////////////////////////////////////////////////////
+  useFrame(() => {
+    if (groupRef.current) {
+      const pos = groupRef.current.position.clone();
+      setCharacterPosition(pos);
+      onPositionUpdate?.(pos);
+    }
+  });
+
+  ////////////////////////////////////////////////////
+  //             MAIN UPDATE LOOP
+  ////////////////////////////////////////////////////
   useFrame((_, delta) => {
     if (!groupRef.current || !mixerRef.current) return;
 
-    // Update animations
+    // 1) Update the mixer
     mixerRef.current.update(delta);
 
-    // Throw animation release
-    if (
-      currentActionRef.current === animations.throw &&
-      isPlayingThrow &&
-      throwTimeRef.current !== undefined
-    ) {
+    // 2) If local => do camera, movement, etc.
+    if (isLocalPlayer) {
+      // --- CAMERA COLLISION / ADJUST ---
+      const theta = cameraRotation.current;
+      const phi = Math.PI * cameraPitch.current;
+      const idealOffset = new THREE.Vector3(
+        CAMERA_DISTANCE * Math.sin(theta) * Math.sin(phi),
+        CAMERA_HEIGHT * Math.cos(phi),
+        CAMERA_DISTANCE * Math.cos(theta) * Math.sin(phi)
+      );
+      const desiredPos = groupRef.current.position.clone().sub(idealOffset);
+      const collisionResult = adjustCameraForCollision(
+        desiredPos,
+        groupRef.current.position,
+        delta
+      );
+
+      if (collisionResult.collision) {
+        isColliding.current = true;
+        camera.position.lerp(collisionResult.position, CAMERA_SMOOTHING * 0.7);
+      } else {
+        camera.position.lerp(collisionResult.position, CAMERA_SMOOTHING);
+      }
+      const lookAtPos = groupRef.current.position
+        .clone()
+        .add(new THREE.Vector3(0, CAMERA_HEIGHT * 0.3 + CHARACTER_HEIGHT_OFFSET, 0));
+      camera.lookAt(lookAtPos);
+    }
+
+    // 3) Throw release
+    if (currentActionRef.current === animations.throw && isPlayingThrow) {
       throwTimeRef.current = currentActionRef.current.time;
       if (throwTimeRef.current >= THROW_RELEASE_TIME && !window.tomatoThrown) {
         window.tomatoThrown = true;
-
-        // Compute throw direction
+        // Compute direction
         const throwDir = new THREE.Vector3(0, Math.sin(THROW_ANGLE), Math.cos(THROW_ANGLE))
           .applyAxisAngle(new THREE.Vector3(0, 1, 0), rotationRef.current)
           .normalize();
-
         if (handBoneRef?.current) {
-          const tomatoPosition = new THREE.Vector3();
-          handBoneRef.current.getWorldPosition(tomatoPosition);
-          onTomatoThrow?.(tomatoPosition, throwDir);
+          const tomatoPos = new THREE.Vector3();
+          handBoneRef.current.getWorldPosition(tomatoPos);
+          onTomatoThrow?.(tomatoPos, throwDir);
         }
       }
-      // Return so we don't do normal movement while throwing
+      // skip normal movement while throwing
       return;
     }
 
-    // Lift animation
+    // 4) Lift
     if (currentActionRef.current === animations.lift && isPlayingLift) {
       liftTimeRef.current = currentActionRef.current.time;
-      // Force the character to remain on the ground
-      const terrainHeight = getTerrainHeight(groupRef.current.position);
-      groupRef.current.position.y = terrainHeight;
-
+      const terrainY = getTerrainHeight(groupRef.current.position);
+      groupRef.current.position.y = terrainY;
       if (liftTimeRef.current >= LIFT_PICKUP_TIME && !window.tomatoPickedUp) {
         window.tomatoPickedUp = true;
         onTomatoPickup?.();
@@ -632,195 +676,168 @@ const Character: React.FC<CharacterProps> = ({
       return;
     }
 
-    // Ascension
+    // 5) Ascension
     if (isAscending) {
       if (currentActionRef.current !== animations.float && animations.float) {
         crossFadeTo(animations.float, 0.2);
       }
-      // Move upward
       const nextPos = groupRef.current.position.clone();
       nextPos.y += ASCENSION_SPEED;
       groupRef.current.position.copy(nextPos);
-      camera.position.y += ASCENSION_SPEED;
+      if (isLocalPlayer) {
+        camera.position.y += ASCENSION_SPEED;
+      }
       return;
     }
 
-    // Prayer
-// Prayer handling
-if (isPraying) {
-  if (!isPlayingPrayer.current) {
-    isPlayingPrayer.current = true;
+    // 6) Prayer
+    if (isPraying) {
+      if (!isPlayingPrayer.current && animations.prayer) {
+        isPlayingPrayer.current = true;
+        const prayerAction = animations.prayer;
+        const idleAction = animations.idle;
+        crossFadeTo(prayerAction, 0.2);
 
-    if (animations.prayer) {
-      // Store reference to prayer and idle animations
-      const prayerAction = animations.prayer;
-      const idleAction = animations.idle;
-
-      // Start prayer animation
-      crossFadeTo(prayerAction, 0.2);
-
-      const onPrayerComplete = () => {
-        // Immediately remove the listener to prevent duplicate calls
-        mixerRef.current?.removeEventListener('finished', onPrayerComplete);
-        
-        // Set prayer state to false BEFORE animation changes
-        isPlayingPrayer.current = false;
-        setIsPraying(false);
-
-        // Wait one frame before transitioning to idle
-        requestAnimationFrame(() => {
-          if (idleAction && mixerRef.current) {
-            crossFadeTo(idleAction, 0.2);
-          }
-        });
-      };
-
-      // Clean up old listener before adding new one
-      mixerRef.current.removeEventListener('finished', onPrayerComplete);
-      mixerRef.current.addEventListener('finished', onPrayerComplete);
-    }
-  }
-
-  // Keep character grounded during prayer
-  const terrainHeight = getTerrainHeight(groupRef.current.position);
-  groupRef.current.position.y = terrainHeight;
-  return;
-}
-
-    // ----- Normal Movement & Physics -----
-    // Distinguish "translating" vs. "rotating only"
-    //  - If the user only presses A/D, we do NOT walk/run, we just rotate in place.
-    //  - If the user presses W/S (with optional A/D), we walk/run.
-    const isForwardBackPressed = movement.forward || movement.backward;
-    const isSideOnly = (movement.left || movement.right) && !isForwardBackPressed;
-
-    // Speed if actually translating forward/back
-    const speed = movement.run ? CHARACTER_SPEED * 2 : CHARACTER_SPEED;
-
-    // Apply rotation if left/right pressed (always).
-    if (movement.left) rotationRef.current += ROTATION_SPEED * delta;
-    if (movement.right) rotationRef.current -= ROTATION_SPEED * delta;
-
-    // Camera rotation smoothing if actually translating
-    if (isForwardBackPressed) {
-      let angleDiff = rotationRef.current - cameraRotation.current;
-      while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-      while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-      cameraRotation.current += angleDiff * ROTATION_SMOOTHING;
+        const onPrayerComplete = () => {
+          mixerRef.current?.removeEventListener("finished", onPrayerComplete);
+          isPlayingPrayer.current = false;
+          setIsPraying(false);
+          requestAnimationFrame(() => {
+            if (idleAction && mixerRef.current) {
+              crossFadeTo(idleAction, 0.2);
+            }
+          });
+        };
+        mixerRef.current.removeEventListener("finished", onPrayerComplete);
+        mixerRef.current.addEventListener("finished", onPrayerComplete);
+      }
+      const terrainY = getTerrainHeight(groupRef.current.position);
+      groupRef.current.position.y = terrainY;
+      return;
     }
 
-    // Movement / Jump if actually moving forward/back
-    if (isForwardBackPressed || isJumping.current) {
-      const forwardBack = movement.forward ? 1 : movement.backward ? -1 : 0;
-      const moveDir = new THREE.Vector3(0, 0, forwardBack);
-      moveDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), rotationRef.current).normalize();
+    // 7) Local Movement & Sync
+    if (isLocalPlayer) {
+      if (groupRef.current && socket) {
+        const pos = groupRef.current.position;
+        const clipName = currentActionRef.current?.getClip().name; // e.g. "Walking", "Idle"
+        const update: PlayerUpdate = {
+          position: { x: pos.x, y: pos.y, z: pos.z },
+          rotation: rotationRef.current,
+          animation: getAnimationName(clipName),
+          isHoldingTomato,
+        };
+        socket.emit("playerUpdate", update);
+      }
 
+      // Movement logic
+      const isForwardBack = movement.forward || movement.backward;
+      const speed = movement.run ? CHARACTER_SPEED * 2 : CHARACTER_SPEED;
+
+      // rotate if A/D
+      if (movement.left) rotationRef.current += ROTATION_SPEED * delta;
+      if (movement.right) rotationRef.current -= ROTATION_SPEED * delta;
+
+      // camera rotation smoothing if W/S pressed
+      if (isForwardBack) {
+        let angleDiff = rotationRef.current - cameraRotation.current;
+        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+        cameraRotation.current += angleDiff * ROTATION_SMOOTHING;
+      }
+
+      // compute next position
       const nextPos = groupRef.current.position.clone();
+      if (isForwardBack || isJumping.current) {
+        const forwardVal = movement.forward ? 1 : movement.backward ? -1 : 0;
+        const moveDir = new THREE.Vector3(0, 0, forwardVal);
+        moveDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), rotationRef.current).normalize();
 
-      // Move horizontally if forward/back pressed
-      if (isForwardBackPressed) {
-        const movementDelta = moveDir.multiplyScalar(speed * delta);
-        movementDelta.multiplyScalar(isJumping.current ? AIR_CONTROL : GROUND_FRICTION);
-        nextPos.add(movementDelta);
-      }
+        if (isForwardBack) {
+          const movementDelta = moveDir.multiplyScalar(speed * delta);
+          movementDelta.multiplyScalar(isJumping.current ? AIR_CONTROL : GROUND_FRICTION);
+          nextPos.add(movementDelta);
+        }
 
-      // Apply jump/fall
-      if (isJumping.current) {
-        verticalVelocity.current += GRAVITY * delta;
-        verticalVelocity.current = Math.max(verticalVelocity.current, MAX_FALL_SPEED);
-        nextPos.y += verticalVelocity.current * delta;
-      }
-
-      // Ground collision
-      const terrainHeight = getTerrainHeight(nextPos);
-      if (nextPos.y <= terrainHeight) {
-        nextPos.y = terrainHeight;
+        // jump/fall
         if (isJumping.current) {
-          verticalVelocity.current = 0;
-          isJumping.current = false;
+          verticalVelocity.current += GRAVITY * delta;
+          verticalVelocity.current = Math.max(verticalVelocity.current, MAX_FALL_SPEED);
+          nextPos.y += verticalVelocity.current * delta;
+        }
 
-          // Crossfade landing
-          if (currentActionRef.current === animations.jump) {
-            if (isForwardBackPressed) {
-              const landingAction = movement.run ? animations.run : animations.walk;
-              if (landingAction) crossFadeTo(landingAction, 0.1);
-            } else if (animations.idle) {
-              crossFadeTo(animations.idle, 0.1);
+        // ground clamp
+        const terrainY = getTerrainHeight(nextPos);
+        if (nextPos.y <= terrainY) {
+          nextPos.y = terrainY;
+          if (isJumping.current) {
+            verticalVelocity.current = 0;
+            isJumping.current = false;
+            // land => either run/walk or idle
+            if (currentActionRef.current === animations.jump) {
+              if (isForwardBack) {
+                const landingAction = movement.run ? animations.run : animations.walk;
+                if (landingAction) crossFadeTo(landingAction, 0.1);
+              } else if (animations.idle) {
+                crossFadeTo(animations.idle, 0.1);
+              }
             }
           }
         }
-      }
-      groupRef.current.position.copy(nextPos);
-    } else {
-      // If not jumping or moving forward/back, keep on the ground
-      const terrainHeight = getTerrainHeight(groupRef.current.position);
-      groupRef.current.position.y = terrainHeight;
-    }
-
-    // Update rotation for the character
-    groupRef.current.rotation.y = rotationRef.current;
-    onRotationUpdate?.(rotationRef.current);
-
-    // Animation transitions if not jumping
-    if (!isJumping.current) {
-      if (isForwardBackPressed) {
-        // If pressing W/S (with optional A/D), use walk or run
-        const targetAction = movement.run ? animations.run : animations.walk;
-        if (targetAction && currentActionRef.current !== targetAction) {
-          crossFadeTo(targetAction, 0.1);
-        }
       } else {
-        // If only A/D pressed, we rotate in place => remain in idle
-        if (animations.idle && currentActionRef.current !== animations.idle) {
-          crossFadeTo(animations.idle, 0.1);
+        // not W/S => keep on ground
+        const terrainY = getTerrainHeight(nextPos);
+        nextPos.y = terrainY;
+      }
+
+      groupRef.current.position.copy(nextPos);
+      groupRef.current.rotation.y = rotationRef.current;
+      onRotationUpdate?.(rotationRef.current);
+
+      // Animate if not jumping
+      if (!isJumping.current) {
+        if (isForwardBack) {
+          const targetAction = movement.run ? animations.run : animations.walk;
+          if (targetAction && currentActionRef.current !== targetAction) {
+            crossFadeTo(targetAction, 0.1);
+          }
+        } else {
+          // if not pressing W/S => idle
+          if (animations.idle && currentActionRef.current !== animations.idle) {
+            crossFadeTo(animations.idle, 0.1);
+          }
         }
       }
     }
 
-    // Camera positioning
-    const theta = cameraRotation.current;
-    const phi = Math.PI * cameraPitch.current;
-    
-    const idealOffset = new THREE.Vector3(
-      CAMERA_DISTANCE * Math.sin(theta) * Math.sin(phi),
-      CAMERA_HEIGHT * Math.cos(phi),
-      CAMERA_DISTANCE * Math.cos(theta) * Math.sin(phi)
-    );
+    // 8) REMOTE Player
+    else if (remoteState) {
+      // Position & rotation interpolation
+      const remotePos = new THREE.Vector3(
+        remoteState.position.x,
+        remoteState.position.y,
+        remoteState.position.z
+      );
+      groupRef.current.position.lerp(remotePos, 0.3);
+      groupRef.current.rotation.y = THREE.MathUtils.lerp(
+        groupRef.current.rotation.y,
+        remoteState.rotation,
+        0.3
+      );
 
-    let targetPosition = groupRef.current.position.clone().sub(idealOffset);
-    const collisionResult = adjustCameraForCollision(
-      targetPosition,
-      groupRef.current.position,
-      delta
-    );
-    
-    // Smooth camera movement based on collision state
-    if (collisionResult.collision) {
-      if (!isColliding.current) {
-        targetCameraRotation.current = cameraRotation.current;
+      // Check if remoteState.animation changed => crossFade to it
+      const desiredAnimName = remoteState.animation; // e.g. 'walk', 'idle', 'run', etc.
+      const newAction = animations[desiredAnimName];
+      if (newAction && currentActionRef.current !== newAction) {
+        crossFadeTo(newAction, 0.2);
       }
-      isColliding.current = true;
-      
-      if (lastValidCameraPosition.current) {
-        camera.position.lerp(collisionResult.position, CAMERA_SMOOTHING * 0.7); // Slower smoothing during collision
-      }
-    } else {
-      camera.position.lerp(collisionResult.position, CAMERA_SMOOTHING);
     }
-
-    // Update look-at
-    const lookAtPosition = groupRef.current.position.clone().add(
-      new THREE.Vector3(0, CAMERA_HEIGHT * 0.3 + CHARACTER_HEIGHT_OFFSET, 0)
-    );
-    camera.lookAt(lookAtPosition);
   });
 
-  // Final render
-  return (
-    <group ref={groupRef}>
-      {characterModel && <primitive object={characterModel} />}
-    </group>
-  );
+  ////////////////////////////////////////////////////
+  //               RENDER OUTPUT
+  ////////////////////////////////////////////////////
+  return <group ref={groupRef} />;
 };
 
 export default Character;

@@ -10,6 +10,8 @@ import HutNPC from "./components/HutNPC";
 import Tomato from "./components/Tomato";
 import { PostProcessing } from "./components/PostProcessing";
 import Ascension from "./components/Ascension";
+import { MultiplayerManager, useMultiplayerStore } from './components/MultiplayerManager';
+import { RemotePlayer } from './components/RemotePlayer';
 
 softShadows();
 
@@ -37,6 +39,10 @@ light.shadow.camera.top = 500;
 light.shadow.camera.bottom = -500;
 
 function App() {
+
+  const remotePlayers = useMultiplayerStore(state => state.players);
+  const localPlayerId = useMultiplayerStore(state => state.localPlayerId);
+
   // Original states
   const [isNearIdol, setIsNearIdol] = useState(false);
   const [isAscending, setIsAscending] = useState(false);
@@ -83,12 +89,13 @@ function App() {
 
   return (
     <div className="w-full h-screen bg-blue-400">
+      <MultiplayerManager />
       <Canvas 
         shadows
         camera={camera}
         gl={{
           antialias: true,
-          powerPreference: "high-performance"
+          powerPreference: "high-performance",
         }}
       >
         <hemisphereLight {...hemiLight} />
@@ -115,7 +122,17 @@ function App() {
             canAscend={canAscend}
             onCanAscend={() => setCanAscend(true)}
             onTomatoOffer={() => setIsTomatoHeld(false)}
+            isLocalPlayer={true}
           />
+          {Array.from(remotePlayers.values())
+          .filter(player => player.id !== localPlayerId) // Only render other players
+          .map(player => (
+            <RemotePlayer 
+              key={player.id} 
+              state={player} 
+            />
+          ))}
+
           <Nature />
           <HutNPC 
             onNearNPC={setIsNearNPC}
@@ -171,7 +188,7 @@ function App() {
           {dialogState === 2 && (
             <>
               <p className="text-yellow-300 mb-2">Villager:</p>
-              <p>Bring the sacred tomato to the idol. Only then may you receive its blessing.</p>
+              <p>Bring the sacred tomato to the idol. Only then may you receive its blessing and ascend.</p>
             </>
           )}
           {dialogState === 3 && (
@@ -198,7 +215,7 @@ function App() {
 
       {isNearIdol && canAscend && (
         <div className="fixed top-4 left-1/2 transform -translate-x-1/2 text-white bg-black bg-opacity-50 px-4 py-2 rounded">
-          Press E to pray and begin ascension
+          Press E to pray and receive a blessing
         </div>
       )}
 

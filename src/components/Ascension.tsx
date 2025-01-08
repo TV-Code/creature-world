@@ -116,10 +116,14 @@ export const Ascension: React.FC<AscensionProps> = ({
   });
 
   return (
-    <mesh position={position}>
-      <cylinderGeometry args={[cylinderRadius, cylinderRadius, cylinderHeight, 32]} />
-      <primitive object={shaderMaterial} attach="material" />
-    </mesh>
+    <>
+      {canAscend && (
+        <mesh position={position}>
+          <cylinderGeometry args={[cylinderRadius, cylinderRadius, cylinderHeight, 32]} />
+          <primitive object={shaderMaterial} attach="material" />
+        </mesh>
+      )}
+    </>
   );
 };
 

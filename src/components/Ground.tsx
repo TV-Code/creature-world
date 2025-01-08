@@ -55,7 +55,7 @@ const Ground: React.FC = () => {
     >
       <planeBufferGeometry
         attach="geometry"
-        args={[500, 500, 150, 150]}  // Reduced resolution
+        args={[700, 700, 150, 150]}  // Reduced resolution
         ref={terrain}
       />
       <primitive object={material} attach="material" />
