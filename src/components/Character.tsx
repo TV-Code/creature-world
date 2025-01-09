@@ -75,24 +75,25 @@ interface CharacterProps {
 
 // Utility to map FBX clip name => your custom enum
 const getAnimationName = (clipName: string | undefined): AnimationName => {
-  switch (clipName?.toLowerCase()) {
-    case "walking":
-      return "walk";
-    case "running":
-      return "run";
-    case "jump":
-      return "jump";
-    case "praying":
-      return "prayer";
-    case "floating":
-      return "float";
-    case "lifting":
-      return "lift";
-    case "throwing":
-      return "throw";
-    default:
-      return "idle";
-  }
+  // First log the incoming name for debugging
+  console.log('Converting animation name:', clipName);
+  
+  if (!clipName) return 'idle';
+  
+  const lowerClip = clipName.toLowerCase();
+  
+  // Handle exact matches first
+  if (lowerClip.includes('walk')) return 'walk';
+  if (lowerClip.includes('run')) return 'run';
+  if (lowerClip.includes('jump')) return 'jump';
+  if (lowerClip.includes('pray')) return 'prayer';
+  if (lowerClip.includes('float')) return 'float';
+  if (lowerClip.includes('lift')) return 'lift';
+  if (lowerClip.includes('throw')) return 'throw';
+  
+  // Add this debug log to see what cases we're missing
+  console.log('No animation match found for:', clipName);
+  return 'idle';
 };
 
 //////////////////////////////////////////////
@@ -192,23 +193,28 @@ const Character: React.FC<CharacterProps> = ({
   //        CROSSFADE THAT STOPS OLD ACTIONS
   ////////////////////////////////////////////////////
   const crossFadeTo = useCallback(
-    (newAction: THREE.AnimationAction, fadeDuration: number = 0.2) => {
+    (newAction: THREE.AnimationAction, duration: number = 0.2) => {
       const oldAction = currentActionRef.current;
       if (!newAction || oldAction === newAction) return;
-
-      newAction.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play();
-
+  
+      // Configure new action
+      newAction.reset();
+      newAction.setEffectiveTimeScale(1);
+      newAction.setEffectiveWeight(1);
+      newAction.clampWhenFinished = false; // Only set true for one-shot animations
+      
+      // Start new action
+      newAction.play();
+  
+      // Crossfade if we have an old action
       if (oldAction) {
-        // Fade out oldAction over fadeDuration
-        newAction.crossFadeFrom(oldAction, fadeDuration, false);
-
-        // Once fade is done, forcibly stop the old action
-        setTimeout(() => {
-          oldAction.stop();
-          oldAction.enabled = false;
-        }, fadeDuration * 1000);
+        // Don't stop the old action, let it fade out naturally
+        newAction.crossFadeFrom(oldAction, duration, true);
+      } else {
+        // If no old action, just fade in the new one
+        newAction.fadeIn(duration);
       }
-
+  
       currentActionRef.current = newAction;
     },
     []
@@ -457,6 +463,8 @@ const Character: React.FC<CharacterProps> = ({
     )
       return;
 
+    console.log("Starting animation setup:", { isLocalPlayer });
+
     // 1) Clone the model
     const model = SkeletonUtils.clone(characterModel) as THREE.Group;
     model.scale.setScalar(0.05);
@@ -482,6 +490,12 @@ const Character: React.FC<CharacterProps> = ({
       }
     });
 
+    console.log("Animation sources:", {
+      characterModel: characterModel.animations,
+      walkAnim: walkAnim.animations,
+      // ... etc
+    });
+
     // 4) Setup helper
     const setupAnimation = (
       source: THREE.Object3D,
@@ -490,26 +504,41 @@ const Character: React.FC<CharacterProps> = ({
       loopType: THREE.AnimationActionLoopStyles,
       clamp: boolean
     ) => {
+      console.log(`Setting up ${key} animation for ${isLocalPlayer ? 'local' : 'remote'} player`);
+      
       if (source.animations.length) {
         const clip = source.animations[0].clone();
+        // Set the correct name for the animation
+        clip.name = key;  // Add this line
+        
         if (removePosition) {
           clip.tracks = clip.tracks.filter(
             (track) => !track.name.toLowerCase().includes("position")
           );
         }
+        
         const action = mixer.clipAction(clip);
         action.setLoop(loopType, Infinity);
         action.clampWhenFinished = clamp;
         action.enabled = true;
         action.setEffectiveWeight(1.0);
+        
         animDict[key] = action;
+        
+        // If this is the idle animation, start it immediately
+        if (key === 'idle') {
+          console.log('Starting idle animation');
+          action.reset();
+          action.play();
+          currentActionRef.current = action;
+        }
       }
     };
 
     // 5) Setup each
     // Idle, walk, run, float => Repeat
     // jump, prayer, lift, throw => LoopOnce
-    setupAnimation(model, "idle", false, THREE.LoopRepeat, false);
+    setupAnimation(characterModel, "idle", false, THREE.LoopRepeat, false);
     setupAnimation(walkAnim, "walk", true, THREE.LoopRepeat, false);
     setupAnimation(runAnim, "run", true, THREE.LoopRepeat, false);
     setupAnimation(jumpAnim, "jump", true, THREE.LoopOnce, true);
@@ -520,10 +549,24 @@ const Character: React.FC<CharacterProps> = ({
 
     setAnimations(animDict);
 
+    console.log(animDict)
+
     // 6) Start idle
     if (animDict.idle) {
-      animDict.idle.reset().play();
-      currentActionRef.current = animDict.idle;
+      console.log('Initializing idle animation');
+      const idleAction = animDict.idle;
+      idleAction.reset();
+      idleAction.setEffectiveTimeScale(1);
+      idleAction.setEffectiveWeight(1);
+      idleAction.play();
+      currentActionRef.current = idleAction;
+    
+      // Add debug to verify it started
+      console.log('Idle animation started:', {
+        action: idleAction.getClip().name,
+        isPlaying: idleAction.isRunning(),
+        weight: idleAction.getEffectiveWeight()
+      });
     }
 
     // 7) Add to group
@@ -612,6 +655,15 @@ const Character: React.FC<CharacterProps> = ({
   ////////////////////////////////////////////////////
   useFrame((_, delta) => {
     if (!groupRef.current || !mixerRef.current) return;
+
+    if (Math.random() < 0.01) { // Only log occasionally
+      console.log('Animation state:', {
+        isLocal: isLocalPlayer,
+        currentAction: currentActionRef.current?.getClip().name,
+        isPlaying: currentActionRef.current?.isRunning(),
+        mixer: mixerRef.current.time
+      });
+    }
 
     // 1) Update the mixer
     mixerRef.current.update(delta);
@@ -812,6 +864,12 @@ const Character: React.FC<CharacterProps> = ({
 
     // 8) REMOTE Player
     else if (remoteState) {
+      // Debug what we're receiving
+      console.log('Remote state update:', {
+        animation: remoteState.animation,
+        currentAction: currentActionRef.current?.getClip().name
+      });
+    
       // Position & rotation interpolation
       const remotePos = new THREE.Vector3(
         remoteState.position.x,
@@ -824,11 +882,16 @@ const Character: React.FC<CharacterProps> = ({
         remoteState.rotation,
         0.3
       );
-
-      // Check if remoteState.animation changed => crossFade to it
-      const desiredAnimName = remoteState.animation; // e.g. 'walk', 'idle', 'run', etc.
+    
+      // Make sure we have the animation
+      const desiredAnimName = remoteState.animation;
       const newAction = animations[desiredAnimName];
+      
       if (newAction && currentActionRef.current !== newAction) {
+        console.log('Transitioning remote animation:', {
+          from: currentActionRef.current?.getClip().name,
+          to: desiredAnimName
+        });
         crossFadeTo(newAction, 0.2);
       }
     }
