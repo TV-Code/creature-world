@@ -2120,6 +2120,11 @@
   resolved "https://registry.npmjs.org/@types/scheduler/-/scheduler-0.16.2.tgz"
   integrity sha512-hppQEBDmlwhFAXKJX2KnWLYu5yMfi91yazPb2l+lbJiwW+wdo1gNeRA+3RgNSO39WYX2euey41KEwnqesU2Jew==
 
+"@types/seedrandom@^3.0.8":
+  version "3.0.8"
+  resolved "https://registry.npmjs.org/@types/seedrandom/-/seedrandom-3.0.8.tgz"
+  integrity sha512-TY1eezMU2zH2ozQoAFAQFOPpvP15g+ZgSfTZt31AUUH/Rxtnz3H+A/Sv1Snw2/amp//omibc+AEkTaA8KUeOLQ==
+
 "@types/serve-index@^1.9.1":
   version "1.9.1"
   resolved "https://registry.npmjs.org/@types/serve-index/-/serve-index-1.9.1.tgz"
@@ -8066,6 +8071,11 @@ schema-utils@2.7.0:
     "@types/json-schema" "^7.0.4"
     ajv "^6.12.2"
     ajv-keywords "^3.4.1"
+
+seedrandom@^3.0.5:
+  version "3.0.5"
+  resolved "https://registry.npmjs.org/seedrandom/-/seedrandom-3.0.5.tgz"
+  integrity sha512-8OwmbklUNzwezjGInmZ+2clQmExQPvomqjL7LFqOYqtmuxRgQYqOD3mHaU+MvZn5FLUeVxVfQjwLZW/n/JFuqg==
 
 select-hose@^2.0.0:
   version "2.0.0"

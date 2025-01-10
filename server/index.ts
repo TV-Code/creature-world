@@ -18,7 +18,11 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: "http://localhost:3000"
+    origin: process.env.NODE_ENV === 'production'
+      ? 'https://project-name.vercel.app'  // Update this with your Vercel URL
+      : 'http://localhost:3000',
+    methods: ['GET', 'POST'],
+    credentials: true
   }
 });
 
@@ -60,4 +64,10 @@ io.on('connection', (socket) => {
   });
 });
 
-httpServer.listen(3001);
+// Export for vercel
+export default app;
+
+// Only listen to port if not Vercel
+if (process.env.NODE_ENV !== 'production') {
+  httpServer.listen(3001);
+}

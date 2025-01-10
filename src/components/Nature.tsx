@@ -1,9 +1,11 @@
 import { useLoader } from "@react-three/fiber";
-import React, { useMemo } from "react";
+import React, { useState, useRef } from "react";
 import * as THREE from "three";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader";
+import seedrandom from "seedrandom";
 
 const Nature: React.FC = () => {
+  // 1) Load FBX models
   const [
     birch3,
     birch4,
@@ -32,13 +34,19 @@ const Nature: React.FC = () => {
     "./textures/nature/WoodLog_Moss.fbx",
   ]);
 
-  [birch3, birch4, berry1, grass2, grass, rock1, rock5, willow2, willow5, log, ctree3, ctree5].forEach(model => {
-    model.traverse((o: THREE.Object3D) => {
-      o.castShadow = true;
-      o.receiveShadow = true;
+  // 2) Ensure all models cast/receive shadows
+  const allModels = [
+    birch3, birch4, berry1, ctree3, ctree5,
+    grass2, grass, rock1, rock5, willow2, willow5, log
+  ];
+  allModels.forEach((model) => {
+    model.traverse((obj: THREE.Object3D) => {
+      obj.castShadow = true;
+      obj.receiveShadow = true;
     });
   });
 
+  // 3) Scale them once
   birch3.scale.setScalar(0.4);
   birch4.scale.setScalar(0.3);
   berry1.scale.setScalar(0.08);
@@ -52,40 +60,39 @@ const Nature: React.FC = () => {
   ctree3.scale.setScalar(0.4);
   ctree5.scale.setScalar(0.4);
 
-  const objects = useMemo(() => {
-    const arr: JSX.Element[] = [];
-    for (let i = 0; i < 100; i++) {
-      const idx = Math.floor(Math.random() * 5) + 1;
-      const pos = new THREE.Vector3(
-        Math.ceil(Math.random() * 300) * (Math.round(Math.random()) ? 1 : -1),
-        0,
-        Math.ceil(Math.random() * 300) * (Math.round(Math.random()) ? 1 : -1)
-      );
+  // 4) Create a stable seedrandom instance
+  //    so we always get the same pseudo-random sequence
+  const rngRef = useRef<() => number>();
+  if (!rngRef.current) {
+    rngRef.current = seedrandom("creature.world");
+  }
 
-      const modelClone =
-        idx === 1 ? birch3.clone()
-          : idx === 2 ? birch4.clone()
-          : idx === 3 ? berry1.clone()
-          : idx === 4 ? ctree3.clone()
-          : idx === 5 ? ctree5.clone()
-          : idx === 6 ? grass2.clone()
-          : idx === 7 ? grass.clone()
-          : idx === 8 ? rock1.clone()
-          : idx === 9 ? rock5.clone()
-          : idx === 10 ? willow2.clone()
-          : idx === 11 ? willow5.clone()
-          : log.clone();
+  // 5) Generate the objects array EXACTLY ONCE
+  //    useState with an initializer -> never changes after mount
+  const [objects] = useState(() => {
+    const generated: JSX.Element[] = [];
+    // Decide how many items you want:
+    for (let i = 0; i < 137; i++) {
+      const random = rngRef.current!;
 
-      arr.push(
+      // pick a model index (0 to 11)
+      const idx = Math.floor(random() * allModels.length);
+
+      // pick X/Z positions
+      const x = Math.floor(random() * 300) * (random() > 0.5 ? 1 : -1);
+      const z = Math.floor(random() * 300) * (random() > 0.5 ? 1 : -1);
+
+      const modelClone = allModels[idx].clone();
+      generated.push(
         <primitive
           key={i}
-          position={pos}
+          position={[x, 0, z]}
           object={modelClone}
         />
       );
     }
-    return arr;
-  }, [birch3, birch4, berry1, ctree3, ctree5, grass2, grass, rock1, rock5, willow2, willow5, log]);
+    return generated;
+  });
 
   return <group>{objects}</group>;
 };

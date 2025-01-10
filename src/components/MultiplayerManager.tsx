@@ -41,40 +41,62 @@ export function MultiplayerManager() {
   const { setSocket, setLocalPlayerId, updatePlayer, removePlayer } = useMultiplayerStore();
 
   useEffect(() => {
-    const socket = io('http://localhost:3001');
-    setSocket(socket);
+    const SOCKET_URL = process.env.NODE_ENV === 'production'
+      ? 'https://your-project-name.vercel.app'  // Update this with your Vercel URL
+      : 'http://localhost:3001';
 
-    socket.on('connect', () => {
-      console.log('Connected with ID:', socket.id);
-      setLocalPlayerId(socket.id);
+    let socket: typeof Socket | null = io(SOCKET_URL, {
+      transports: ['websocket'],
+      autoConnect: true,
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
     });
 
-    socket.on('gameState', (players: PlayerState[]) => {
-      players.forEach(player => {
-        updatePlayer(player.id, player);
+    if (socket) {
+      setSocket(socket);
+
+      socket.on('connect', () => {
+        if (socket) {  // Check if socket still exists
+          console.log('Connected with ID:', socket.id);
+          setLocalPlayerId(socket.id);
+        }
       });
-    });
 
-    socket.on('playerJoined', (player: PlayerState) => {
-        console.log('New player joined:', player.id);
-        updatePlayer(player.id, player);
-    });
+      socket.on('gameState', (players: PlayerState[]) => {
+        players.forEach(player => {
+          updatePlayer(player.id, player);
+        });
+      });
 
-    socket.on('playerUpdated', (update: PlayerState) => {
-      if (update.id !== socket.id) {
-        updatePlayer(update.id, update);
-      }
-    });
+      socket.on('playerJoined', (player: PlayerState) => {
+        if (socket) {  // Check if socket still exists
+          console.log('New player joined:', player.id);
+          updatePlayer(player.id, player);
+        }
+      });
 
-    socket.on('playerLeft', (id: string) => {
-      console.log('Player left:', id);
-      removePlayer(id);
-    });
+      socket.on('playerUpdated', (update: PlayerState) => {
+        if (socket && update.id !== socket.id) {
+          updatePlayer(update.id, update);
+        }
+      });
+
+      socket.on('playerLeft', (id: string) => {
+        console.log('Player left:', id);
+        removePlayer(id);
+      });
+    }
 
     return () => {
-      socket.disconnect();
+      if (socket) {
+        // Remove all listeners before disconnecting
+        socket.removeAllListeners();
+        socket.disconnect();
+        socket = null;  // Clear the reference
+      }
     };
-  }, []);
+  }, [setSocket, setLocalPlayerId, updatePlayer, removePlayer]);
 
   return null;
 }

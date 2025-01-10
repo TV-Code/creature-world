@@ -1,4 +1,4 @@
-import Character from './Character';
+import Character from './Character/index';
 import { PlayerState } from '../types/multiplayer';
 
 interface RemotePlayerProps {
@@ -6,11 +6,6 @@ interface RemotePlayerProps {
 }
 
 export function RemotePlayer({ state }: RemotePlayerProps) {
-  console.log("Rendering remote player:", { 
-    id: state.id,
-    position: state.position,
-    animation: state.animation 
-});
 
   return (
     <Character 

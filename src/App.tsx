@@ -2,7 +2,7 @@ import React, { Suspense, useState, useRef } from "react";
 import { Loader, softShadows } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import Ground from "./components/Ground";
-import Character from "./components/Character";
+import Character from "./components/Character/index";
 import * as THREE from "three";
 import Nature from "./components/Nature";
 import Idol from "./components/Idol";
