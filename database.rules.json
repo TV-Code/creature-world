@@ -1,0 +1,12 @@
+{
+  "rules": {
+    "players": {
+      ".read": true,
+      ".write": true,
+      "$playerId": {
+        ".read": true,
+        ".write": true
+      }
+    }
+  }
+}

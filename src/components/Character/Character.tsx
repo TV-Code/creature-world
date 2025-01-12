@@ -9,6 +9,7 @@ import React, {
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader";
 import * as THREE from "three";
 import { Group } from "three";
+import { MovementState } from "../../types/controls";
 
 // Constants
 const CHARACTER_SPEED = 15; // Units per second
@@ -36,6 +37,7 @@ const ASCENSION_SPEED = 0.2;
 // Types
 interface CharacterProps {
   camera: THREE.PerspectiveCamera;
+  movement: MovementState
   isNearIdol?: boolean;
   isNearNPC?: boolean;
   onDialogProgress?: () => void;

@@ -1,4 +1,4 @@
-import React, { Suspense, useState, useRef } from "react";
+import React, { Suspense, useState, useRef, useEffect } from "react";
 import { Loader, softShadows } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import Ground from "./components/Ground";
@@ -12,6 +12,9 @@ import { PostProcessing } from "./components/PostProcessing";
 import Ascension from "./components/Ascension";
 import { MultiplayerManager, useMultiplayerStore } from './components/MultiplayerManager';
 import { RemotePlayer } from './components/RemotePlayer';
+import { useMovementControls } from "./hooks/useMovementControls";
+import { MobileControls } from "./components/controls/MobileControls";
+import { isTouchDevice } from './components/utils/deviceDetection';
 
 softShadows();
 
@@ -44,6 +47,9 @@ function App() {
   const localPlayerId = useMultiplayerStore(state => state.localPlayerId);
 
   // Original states
+  const { movement, handleMobileMovement } = useMovementControls();
+  const showMobileControls = isTouchDevice();
+
   const [isNearIdol, setIsNearIdol] = useState(false);
   const [isAscending, setIsAscending] = useState(false);
   const [isNearNPC, setIsNearNPC] = useState(false);
@@ -103,8 +109,9 @@ function App() {
         <ambientLight intensity={0.2} />
         <Suspense fallback={null}>
           <Ground />
-          <Character 
+          <Character
             camera={camera} 
+            movement={movement}
             isNearIdol={isNearIdol}
             isAscending={isAscending}
             onPositionUpdate={handlePositionUpdate}
@@ -169,6 +176,12 @@ function App() {
         dataInterpolation={(p) => `Loading ${p.toFixed(2)}%`}
         initialState={(active) => active}
       />
+
+    {showMobileControls && (
+            <MobileControls
+              onMovementChange={handleMobileMovement}
+            />
+          )}
 
       {/* Quest UI */}
       {isNearNPC && !hasSpokenToNPC && dialogState === 0 && (

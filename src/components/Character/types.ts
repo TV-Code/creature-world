@@ -3,6 +3,7 @@ import { AnimationName, PlayerState, PlayerUpdate } from '../../types/multiplaye
 
 export interface CharacterProps {
     camera: THREE.PerspectiveCamera;
+    movement?: MovementState;
     isNearIdol?: boolean;
     isNearNPC?: boolean;
     onDialogProgress?: () => void;
@@ -28,6 +29,7 @@ export interface CharacterProps {
     right: boolean;
     run: boolean;
     jump: boolean;
+    action: boolean;
   }
   
   export interface CollisionResult {

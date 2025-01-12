@@ -20,6 +20,8 @@ import {
 } from '../constants';
 import { getTerrainHeight, adjustCameraForCollision, getAnimationName } from '../utils';
 import { useMultiplayerStore } from '../../MultiplayerManager';
+import { ref, set } from 'firebase/database';
+import { database } from '../../../firebase';
 import { PlayerUpdate, AnimationName } from '../../../types/multiplayer';
 
 interface UpdateHandlerProps {
@@ -31,6 +33,7 @@ interface UpdateHandlerProps {
     right: boolean;
     run: boolean;
     jump: boolean;
+    action: boolean;
   };
   animations: { [key: string]: THREE.AnimationAction };
   crossFadeTo: (action: THREE.AnimationAction, duration?: number) => void;
@@ -66,7 +69,7 @@ export function useCharacterUpdate({
   onTomatoThrow,
   remoteState
 }: UpdateHandlerProps) {
-  const socket = useMultiplayerStore((state) => state.socket);
+  const localPlayerId = useMultiplayerStore((state) => state.localPlayerId);
   const [currentAnimation, setCurrentAnimation] = useState<AnimationName>('idle');
 
   const handleLocalPlayerUpdate = useCallback((delta: number) => {
@@ -74,29 +77,28 @@ export function useCharacterUpdate({
 
     let activeAnimation: AnimationName = 'idle';
         
-        // Determine current animation based on states
-        if (isPlayingLift) activeAnimation = 'lift';
-        else if (isPlayingThrow) activeAnimation = 'throw';
-        else if (isPraying) activeAnimation = 'prayer';
-        else if (isAscending) activeAnimation = 'float';
-        else if (movement.forward || movement.backward) {
-          activeAnimation = movement.run ? 'run' : 'walk';
-        }
-        else if (refs.isJumping.current) activeAnimation = 'jump';
-    
-        if (socket) {
-            const update: PlayerUpdate = {
-              position: { 
-                x: refs.groupRef.current.position.x, 
-                y: refs.groupRef.current.position.y, 
-                z: refs.groupRef.current.position.z 
-              },
-              rotation: refs.rotationRef.current,
-              animation: activeAnimation,
-              isHoldingTomato
-            };
-            socket.emit("playerUpdate", update);
-          }
+    // Determine current animation based on states
+    if (isPlayingLift) activeAnimation = 'lift';
+    else if (isPlayingThrow) activeAnimation = 'throw';
+    else if (isPraying) activeAnimation = 'prayer';
+    else if (isAscending) activeAnimation = 'float';
+    else if (movement.forward || movement.backward) {
+    activeAnimation = movement.run ? 'run' : 'walk';
+    }
+    else if (refs.isJumping.current) activeAnimation = 'jump';
+
+    const playerRef = ref(database, `players/${localPlayerId}`);
+    const update: PlayerUpdate = {
+      position: { 
+        x: refs.groupRef.current.position.x, 
+        y: refs.groupRef.current.position.y, 
+        z: refs.groupRef.current.position.z 
+      },
+      rotation: refs.rotationRef.current,
+      animation: activeAnimation,
+      isHoldingTomato
+    };
+    set(playerRef, update);
     
     if (camera) {
         const theta = refs.cameraRotation.current;
@@ -280,28 +282,6 @@ export function useCharacterUpdate({
         crossFadeTo(animations.idle, 0.1);
       }
     }
-
-    // // Multiplayer sync
-    // if (isLocalPlayer && socket) {
-        
-        
-    //     // Set for our local tracking
-    //     setCurrentAnimation(activeAnimation);
-    //     console.log(activeAnimation)
-      
-    //     const update: PlayerUpdate = {
-    //       position: { 
-    //         x: refs.groupRef.current.position.x, 
-    //         y: refs.groupRef.current.position.y, 
-    //         z: refs.groupRef.current.position.z 
-    //       },
-    //       rotation: refs.rotationRef.current,
-    //       animation: activeAnimation,
-    //       isHoldingTomato
-    //     };
-        
-    //     socket.emit("playerUpdate", update);
-    //   }
   }, [
     refs,
     movement,
@@ -318,7 +298,7 @@ export function useCharacterUpdate({
     onRotationUpdate,
     onTomatoPickup,
     onTomatoThrow,
-    socket
+    localPlayerId
   ]);
 
   const handleRemotePlayerUpdate = useCallback(() => {

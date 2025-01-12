@@ -1,102 +1,125 @@
 import { useEffect } from 'react';
-import io from 'socket.io-client';
-import type { Socket } from 'socket.io-client';
+import { ref, onValue, set, onDisconnect, get, remove } from 'firebase/database';
+import { database } from '../firebase';
 import create from 'zustand';
-import { PlayerState, PlayerUpdate } from '../types/multiplayer';
+import type { PlayerState } from '../types/multiplayer';
 
 interface MultiplayerStore {
   players: Map<string, PlayerState>;
-  socket: typeof Socket | null;
   localPlayerId: string | null;
-  setSocket: (socket: typeof Socket) => void;
-  setLocalPlayerId: (id: string) => void;
-  updatePlayer: (id: string, update: PlayerUpdate) => void;
+  setPlayers: (players: Map<string, PlayerState>) => void;
+  addPlayer: (player: PlayerState) => void;
+  updatePlayer: (id: string, update: Partial<PlayerState>) => void;
   removePlayer: (id: string) => void;
+  setLocalPlayerId: (id: string) => void;
 }
 
 export const useMultiplayerStore = create<MultiplayerStore>((set) => ({
   players: new Map(),
-  socket: null,
   localPlayerId: null,
-  setSocket: (socket) => set({ socket }),
-  setLocalPlayerId: (id) => set({ localPlayerId: id }),
-  updatePlayer: (id, update) => set((state) => {
-    const players = new Map(state.players);
-    const player = players.get(id);
-    if (player) {
-      players.set(id, { ...player, ...update });
-    } else {
-      players.set(id, { id, ...update } as PlayerState);
-    }
-    return { players };
-  }),
-  removePlayer: (id) => set((state) => {
-    const players = new Map(state.players);
-    players.delete(id);
-    return { players };
-  })
+  setPlayers: (players) => set({ players }),
+  addPlayer: (player) =>
+    set((state) => {
+      const newPlayers = new Map(state.players);
+      newPlayers.set(player.id, player);
+      return { players: newPlayers };
+    }),
+  updatePlayer: (id, update) =>
+    set((state) => {
+      const newPlayers = new Map(state.players);
+      const player = newPlayers.get(id);
+      if (player) {
+        newPlayers.set(id, { ...player, ...update });
+      }
+      return { players: newPlayers };
+    }),
+  removePlayer: (id) =>
+    set((state) => {
+      const newPlayers = new Map(state.players);
+      newPlayers.delete(id);
+      return { players: newPlayers };
+    }),
+  setLocalPlayerId: (id) => set({ localPlayerId: id })
 }));
 
-export function MultiplayerManager() {
-  const { setSocket, setLocalPlayerId, updatePlayer, removePlayer } = useMultiplayerStore();
+export const MultiplayerManager = () => {
+  const { setPlayers, removePlayer, setLocalPlayerId, localPlayerId } = useMultiplayerStore();
 
   useEffect(() => {
-    const SOCKET_URL = process.env.NODE_ENV === 'production'
-      ? 'https://your-project-name.vercel.app'  // Update this with your Vercel URL
-      : 'http://localhost:3001';
+    // Generate a truly unique ID using timestamp and random string
+    const timestamp = new Date().getTime();
+    const random = Math.random().toString(36).substring(2, 15);
+    const playerId = `player_${timestamp}_${random}`;
+    
+    console.log('Player joining with ID:', playerId);
+    setLocalPlayerId(playerId);
 
-    let socket: typeof Socket | null = io(SOCKET_URL, {
-      transports: ['websocket'],
-      autoConnect: true,
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-    });
+    const playerRef = ref(database, `players/${playerId}`);
+    const allPlayersRef = ref(database, 'players');
 
-    if (socket) {
-      setSocket(socket);
+    // Initialize player data
+    const initialPlayerState: PlayerState = {
+      id: playerId,
+      position: { x: 0, y: 0, z: 0 },
+      rotation: 0,
+      animation: 'idle',
+      isHoldingTomato: false
+    };
 
-      socket.on('connect', () => {
-        if (socket) {  // Check if socket still exists
-          console.log('Connected with ID:', socket.id);
-          setLocalPlayerId(socket.id);
-        }
-      });
-
-      socket.on('gameState', (players: PlayerState[]) => {
-        players.forEach(player => {
-          updatePlayer(player.id, player);
-        });
-      });
-
-      socket.on('playerJoined', (player: PlayerState) => {
-        if (socket) {  // Check if socket still exists
-          console.log('New player joined:', player.id);
-          updatePlayer(player.id, player);
-        }
-      });
-
-      socket.on('playerUpdated', (update: PlayerState) => {
-        if (socket && update.id !== socket.id) {
-          updatePlayer(update.id, update);
-        }
-      });
-
-      socket.on('playerLeft', (id: string) => {
-        console.log('Player left:', id);
-        removePlayer(id);
-      });
-    }
-
-    return () => {
-      if (socket) {
-        // Remove all listeners before disconnecting
-        socket.removeAllListeners();
-        socket.disconnect();
-        socket = null;  // Clear the reference
+    // Set up player data
+    const setupPlayer = async () => {
+      try {
+        // Set initial state
+        await set(playerRef, initialPlayerState);
+        console.log('Initial player state set:', initialPlayerState);
+        
+        // Set up disconnect handler
+        await onDisconnect(playerRef).remove();
+        console.log('Disconnect handler set up');
+      } catch (error) {
+        console.error('Error setting up player:', error);
       }
     };
-  }, [setSocket, setLocalPlayerId, updatePlayer, removePlayer]);
+
+    setupPlayer();
+
+    // Listen for all players' updates
+    const unsubscribe = onValue(allPlayersRef, (snapshot) => {
+      const playersData = snapshot.val();
+      console.log('Received players data:', playersData);
+      console.log('Local player ID:', playerId);
+
+      if (playersData) {
+        const currentPlayers = new Map<string, PlayerState>();
+        
+        Object.entries(playersData).forEach(([id, player]: [string, any]) => {
+          console.log(`Processing player ${id}:`, player);
+          // Make sure we're not including the local player in the remote players list
+          if (id !== playerId) {
+            console.log('Adding remote player:', id);
+            currentPlayers.set(id, player as PlayerState);
+          } else {
+            console.log('Skipping local player:', id);
+          }
+        });
+        
+        console.log('Final players map:', Array.from(currentPlayers.entries()));
+        setPlayers(currentPlayers);
+      } else {
+        console.log('No players data received');
+        setPlayers(new Map());
+      }
+    });
+
+    // Cleanup function
+    return () => {
+      console.log('Cleaning up player:', playerId);
+      unsubscribe();
+      remove(playerRef).catch(error => {
+        console.error('Error removing player:', error);
+      });
+    };
+  }, []); // Empty dependency array since we want this to run once
 
   return null;
-}
+};

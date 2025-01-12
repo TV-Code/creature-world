@@ -5,10 +5,20 @@ import { useCharacterSetup } from './hooks/useCharacterSetup';
 import { useCharacterInput } from './hooks/useCharacterInput';
 import { useCharacterUpdate } from './hooks/useCharacterUpdate';
 import { CharacterProps, MovementState, CharacterRefs } from './types';
+import { JUMP_FORCE } from './constants';
 import { useMultiplayerStore } from '../MultiplayerManager';
 
 const Character: React.FC<CharacterProps> = ({
   camera,
+  movement = {
+    forward: false,
+    backward: false,
+    left: false,
+    right: false,
+    run: false,
+    jump: false,
+    action: false,
+  },
   isLocalPlayer,
   isNearIdol = false,
   isNearNPC = false,
@@ -55,14 +65,6 @@ const Character: React.FC<CharacterProps> = ({
   };
 
   // States
-  const [movement, setMovement] = useState<MovementState>({
-    forward: false,
-    backward: false,
-    left: false,
-    right: false,
-    run: false,
-    jump: false,
-  });
   const [isPraying, setIsPraying] = useState(false);
   const [isPlayingLift, setIsPlayingLift] = useState(false);
   const [isPlayingThrow, setIsPlayingThrow] = useState(false);
@@ -81,7 +83,7 @@ const Character: React.FC<CharacterProps> = ({
   });
 
   // Input handling
-  const { startPickupAnimation, startThrowAnimation } = useCharacterInput({
+  const characterInputHandlers = useCharacterInput({
     isLocalPlayer,
     isPraying,
     isNearNPC,
@@ -92,7 +94,6 @@ const Character: React.FC<CharacterProps> = ({
     canAscend,
     isNearTomato,
     refs,
-    setMovement,
     setIsPraying,
     setIsPlayingLift,
     setIsPlayingThrow,
@@ -123,6 +124,21 @@ const Character: React.FC<CharacterProps> = ({
     onTomatoThrow,
     remoteState,
   });
+
+  useEffect(() => {
+    if (movement.action) {
+      characterInputHandlers.handleAction('interact');
+    }
+  }, [movement.action, characterInputHandlers]);
+
+  // Handle jumping
+  useEffect(() => {
+    if (movement.jump && !refs.isJumping.current) {
+      refs.verticalVelocity.current = JUMP_FORCE;
+      refs.isJumping.current = true;
+      if (animations.jump) crossFadeTo(animations.jump, 0.1);
+    }
+  }, [movement.jump, animations, crossFadeTo]);
 
   // Position tracking
   useFrame(() => {

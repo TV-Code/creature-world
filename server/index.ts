@@ -1,3 +1,4 @@
+import * as functions from 'firebase-functions';
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -18,9 +19,7 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.NODE_ENV === 'production'
-      ? 'https://project-name.vercel.app'  // Update this with your Vercel URL
-      : 'http://localhost:3000',
+    origin: '*',  // Update this with your Firebase hosting URL
     methods: ['GET', 'POST'],
     credentials: true
   }
@@ -64,10 +63,5 @@ io.on('connection', (socket) => {
   });
 });
 
-// Export for vercel
-export default app;
-
-// Only listen to port if not Vercel
-if (process.env.NODE_ENV !== 'production') {
-  httpServer.listen(3001);
-}
+// Export for Firebase Functions
+export const game = functions.https.onRequest(app);
